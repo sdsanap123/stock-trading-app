@@ -8,6 +8,8 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import logging
+import time
+import random
 from typing import Dict, Tuple
 
 logger = logging.getLogger(__name__)
@@ -16,7 +18,102 @@ class TechnicalAnalyzer:
     """Technical analysis for stocks."""
     
     def __init__(self):
+        self.request_delay = 1.0  # Base delay between requests
+        self.max_retries = 3
+        self.last_request_time = 0
         logger.info("Technical Analyzer initialized")
+    
+    def _fetch_stock_data_with_retry(self, symbol: str, period: str = '3mo', max_retries: int = 3) -> pd.DataFrame:
+        """Fetch stock data with retry logic for rate limiting."""
+        for attempt in range(max_retries):
+            try:
+                # Add delay to prevent rate limiting
+                current_time = time.time()
+                time_since_last_request = current_time - self.last_request_time
+                if time_since_last_request < self.request_delay:
+                    sleep_time = self.request_delay - time_since_last_request + random.uniform(0, 0.5)
+                    logger.debug(f"Rate limiting delay: {sleep_time:.2f}s")
+                    time.sleep(sleep_time)
+                
+                self.last_request_time = time.time()
+                
+                # Fetch stock data
+                ticker = yf.Ticker(symbol)
+                hist = ticker.history(period=period)
+                
+                if hist.empty:
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(f"No data for {symbol}, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"No data available for {symbol} after {max_retries} attempts")
+                        return pd.DataFrame()
+                
+                return hist
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                if 'rate limited' in error_msg or 'too many requests' in error_msg:
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) + random.uniform(1, 3)
+                        logger.warning(f"Rate limited for {symbol}, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"Rate limited for {symbol} after {max_retries} attempts")
+                        return pd.DataFrame()
+                elif self._is_likely_delisted(error_msg):
+                    logger.warning(f"Stock {symbol} appears to be delisted: {str(e)}")
+                    return pd.DataFrame()
+                elif 'no price data' in error_msg:
+                    # Don't immediately assume delisted for "no price data" - might be temporary
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(f"No price data for {symbol}, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.warning(f"No price data for {symbol} after {max_retries} attempts - might be delisted")
+                        return pd.DataFrame()
+                else:
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(f"Error fetching {symbol}: {str(e)}, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"Error fetching {symbol} after {max_retries} attempts: {str(e)}")
+                        return pd.DataFrame()
+        
+        return pd.DataFrame()
+    
+    def _is_likely_delisted(self, error_msg: str) -> bool:
+        """Check if error message indicates the stock is likely delisted."""
+        error_msg_lower = error_msg.lower()
+        
+        # Specific indicators that suggest delisting
+        delisted_indicators = [
+            'delisted',
+            'no longer trading',
+            'suspended',
+            'bankruptcy',
+            'ceased trading',
+            'removed from exchange',
+            'trading halted permanently'
+        ]
+        
+        # Check for specific delisted indicators
+        if any(indicator in error_msg_lower for indicator in delisted_indicators):
+            return True
+        
+        # Don't treat generic "no price data" as delisted without more context
+        if 'no price data' in error_msg_lower:
+            # Only consider it delisted if it's explicitly mentioned
+            return 'delisted' in error_msg_lower
+        
+        return False
     
     def calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:
         """Calculate RSI indicator."""
@@ -242,11 +339,11 @@ class TechnicalAnalyzer:
     def analyze_stock(self, symbol: str, period: str = '3mo') -> Dict:
         """Perform comprehensive technical analysis on stock."""
         try:
-            # Fetch stock data
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period=period)
+            # Fetch stock data with retry logic
+            hist = self._fetch_stock_data_with_retry(symbol, period)
             
             if hist.empty:
+                logger.warning(f"No data available for {symbol}")
                 return {}
             
             # Calculate all technical indicators

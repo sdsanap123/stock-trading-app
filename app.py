@@ -48,11 +48,16 @@ from components.firebase_integration import FirebaseSync
 from components.cache_manager import CacheManager
 from components.swing_strategy import SwingTradingStrategy
 from components.email_notifications import EmailNotificationManager, AlertType, AlertPriority
+from components.equity_loader import EquityLoader
 from components.price_monitor import PriceMonitor
 from components.notification_settings import NotificationSettingsManager, NotificationChannel
 from components.data_persistence import DataPersistenceManager
 from components.expandable_ui import ExpandableUI
 from components.scheduled_analysis import ScheduledAnalysis
+from components.portfolio_manager import PortfolioManager
+from components.performance_learning import PerformanceLearning
+from components.user_manager import UserManager
+from components.login_interface import LoginInterface
 
 # Page configuration
 st.set_page_config(
@@ -210,10 +215,12 @@ class StreamlitTradingApp:
             st.session_state.analysis_in_progress = False
         if 'last_analysis_time' not in st.session_state:
             st.session_state.last_analysis_time = None
+        if 'api_keys_initialized' not in st.session_state:
+            st.session_state.api_keys_initialized = False
         if 'saved_groq_key' not in st.session_state:
-            st.session_state.saved_groq_key = self.load_saved_api_key('groq')
+            st.session_state.saved_groq_key = ''
         if 'saved_gemini_key' not in st.session_state:
-            st.session_state.saved_gemini_key = self.load_saved_api_key('gemini')
+            st.session_state.saved_gemini_key = ''
         if 'cache_manager' not in st.session_state:
             st.session_state.cache_manager = CacheManager()
         if 'swing_strategy' not in st.session_state:
@@ -225,9 +232,21 @@ class StreamlitTradingApp:
         if 'notification_settings' not in st.session_state:
             st.session_state.notification_settings = NotificationSettingsManager()
         if 'data_persistence' not in st.session_state:
-            st.session_state.data_persistence = DataPersistenceManager()
+            # Initialize with current user if available
+            current_user = st.session_state.get('current_username')
+            st.session_state.data_persistence = DataPersistenceManager(username=current_user)
         if 'scheduled_analysis' not in st.session_state:
             st.session_state.scheduled_analysis = ScheduledAnalysis(self.analyze_market)
+        if 'equity_loader' not in st.session_state:
+            st.session_state.equity_loader = EquityLoader()
+        if 'portfolio_manager' not in st.session_state:
+            st.session_state.portfolio_manager = PortfolioManager()
+        if 'performance_learning' not in st.session_state:
+            st.session_state.performance_learning = PerformanceLearning()
+        if 'user_manager' not in st.session_state:
+            st.session_state.user_manager = UserManager()
+        if 'login_interface' not in st.session_state:
+            st.session_state.login_interface = LoginInterface(st.session_state.user_manager)
         
         # Load saved data into session state if not already loaded
         if 'watchlist' not in st.session_state or not st.session_state.watchlist:
@@ -296,9 +315,10 @@ class StreamlitTradingApp:
             # Load and set Groq API key
             groq_key = self.load_saved_api_key('groq')
             if groq_key:
-                self.groq_analyzer.api_key = groq_key
-                self.groq_analyzer.initialized = True
-                logger.info("Groq API key loaded and initialized")
+                if self.groq_analyzer.set_api_key(groq_key):
+                    logger.info("Groq API key loaded and validated successfully")
+                else:
+                    logger.error("Groq API key validation failed")
             else:
                 self.groq_analyzer.initialized = False
                 logger.warning("Groq API key not found")
@@ -306,9 +326,10 @@ class StreamlitTradingApp:
             # Load and set Gemini API key
             gemini_key = self.load_saved_api_key('gemini')
             if gemini_key:
-                self.gemini_analyzer.api_key = gemini_key
-                self.gemini_analyzer.initialized = True
-                logger.info("Gemini API key loaded and initialized")
+                if self.gemini_analyzer.set_api_key(gemini_key):
+                    logger.info("Gemini API key loaded and validated successfully")
+                else:
+                    logger.error("Gemini API key validation failed")
             else:
                 self.gemini_analyzer.initialized = False
                 logger.warning("Gemini API key not found")
@@ -385,6 +406,13 @@ class StreamlitTradingApp:
     def load_saved_api_key(self, key_type: str) -> str:
         """Load saved API key from session state, local file, Streamlit secrets, or environment variables."""
         try:
+            # For new browsers, keep API key sections blank
+            # Only load from files/secrets if user explicitly wants to use saved keys
+            
+            # Check if this is a new browser session (no session state initialized)
+            if 'api_keys_initialized' not in st.session_state:
+                return ''  # Keep blank for new browsers
+            
             # First check session state (for current session)
             if key_type == 'groq':
                 session_key = st.session_state.get('saved_groq_key', '')
@@ -432,11 +460,24 @@ class StreamlitTradingApp:
     def save_api_key(self, key_type: str, api_key: str) -> bool:
         """Save API key to session state and local file for persistence."""
         try:
-            # Save to session state
+            if not api_key or not api_key.strip():
+                st.error("API key cannot be empty")
+                return False
+            
+            # Validate API key before saving
             if key_type == 'groq':
-                st.session_state.saved_groq_key = api_key
+                if not self.groq_analyzer.set_api_key(api_key.strip()):
+                    st.error("Invalid Groq API key. Please check your key and try again.")
+                    return False
+                st.session_state.saved_groq_key = api_key.strip()
             elif key_type == 'gemini':
-                st.session_state.saved_gemini_key = api_key
+                if not self.gemini_analyzer.set_api_key(api_key.strip()):
+                    st.error("Invalid Gemini API key. Please check your key and try again.")
+                    return False
+                st.session_state.saved_gemini_key = api_key.strip()
+            
+            # Mark API keys as initialized
+            st.session_state.api_keys_initialized = True
             
             # Save to local file for persistence
             import os
@@ -446,11 +487,13 @@ class StreamlitTradingApp:
             
             key_file = os.path.join(data_dir, f"{key_type}_api_key.txt")
             with open(key_file, 'w') as f:
-                f.write(api_key)
+                f.write(api_key.strip())
             
-            logger.info(f"Saved {key_type} API key to session state and file")
+            st.success(f"{key_type.upper()} API key validated and saved successfully!")
+            logger.info(f"Saved and validated {key_type} API key to session state and file")
             return True
         except Exception as e:
+            st.error(f"Error saving API key: {str(e)}")
             logger.error(f"Could not save {key_type} API key: {str(e)}")
             return False
     
@@ -515,54 +558,138 @@ class StreamlitTradingApp:
         except Exception as e:
             logger.error(f"Error in notification callback: {str(e)}")
     
+    def _load_user_data(self):
+        """Load user-specific data after login."""
+        try:
+            # Load saved watchlist
+            saved_watchlist = st.session_state.data_persistence.get_watchlist()
+            if saved_watchlist:
+                st.session_state.watchlist = saved_watchlist
+                logger.info(f"Loaded {len(saved_watchlist)} items from user watchlist")
+            
+            # Load latest recommendations
+            available_dates = st.session_state.data_persistence.get_available_dates()
+            if available_dates:
+                latest_date = max(available_dates)
+                latest_recommendations = st.session_state.data_persistence.get_recommendations_by_date(latest_date)
+                if latest_recommendations:
+                    st.session_state.recommendations = latest_recommendations
+                    logger.info(f"Loaded {len(latest_recommendations)} recommendations from {latest_date}")
+            
+            # Load latest swing strategies
+            swing_dates = st.session_state.data_persistence.get_available_dates()
+            if swing_dates:
+                latest_swing_date = max(swing_dates)
+                latest_swing_strategies = st.session_state.data_persistence.get_swing_strategies_by_date(latest_swing_date)
+                if latest_swing_strategies:
+                    st.session_state.swing_strategies = latest_swing_strategies
+                    logger.info(f"Loaded {len(latest_swing_strategies)} swing strategies from {latest_swing_date}")
+            
+        except Exception as e:
+            logger.error(f"Error loading user data: {str(e)}")
+    
     def run(self):
         """Run the main application."""
-        # Header
-        st.markdown('<h1 class="main-header">🚀 Enhanced Swing Trading App - AI Powered</h1>', unsafe_allow_html=True)
+        try:
+            # Initialize session state
+            self.initialize_session_state()
+            
+            # Initialize components
+            self.initialize_components()
+            
+            # Check login status
+            login_interface = st.session_state.login_interface
+            
+            if not login_interface.is_user_logged_in():
+                # Show login page
+                if login_interface.show_login_page():
+                    # User successfully logged in, reinitialize data persistence with user
+                    current_user = login_interface.get_current_user()
+                    st.session_state.data_persistence = DataPersistenceManager(username=current_user)
+                    # Load user-specific data
+                    self._load_user_data()
+                else:
+                    # User not logged in, stop here
+                    return
+            
+            # User is logged in, show main application
+            # Header
+            current_user = login_interface.get_current_user()
+            st.markdown(f'<h1 class="main-header">🚀 Enhanced Swing Trading App - AI Powered</h1>', unsafe_allow_html=True)
+            st.caption(f"Welcome, {current_user}!")
         
-        # Sidebar
-        self.create_sidebar()
+            # Sidebar
+            self.create_sidebar()
+            
+            # Main content - Compact tab layout
+            tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+                "📰 News", 
+                "🤖 Groq", 
+                "🎯 BUY", 
+                "📈 Swing", 
+                "👀 Watch", 
+                "🔍 Manual",
+                "📊 Portfolio",
+                "🔔 Alerts"
+            ])
         
-        # Main content - Compact tab layout
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-            "📰 News", 
-            "🤖 Groq", 
-            "🎯 BUY", 
-            "📈 Swing", 
-            "👀 Watch", 
-            "🔍 Manual",
-            "📊 Portfolio",
-            "🔔 Alerts"
-        ])
-        
-        with tab1:
-            self.news_analysis_tab()
-        
-        with tab2:
-            self.groq_news_analysis_tab()
-        
-        with tab3:
-            self.recommendations_tab()
-        
-        with tab4:
-            self.swing_trading_tab()
-        
-        with tab5:
-            self.watchlist_tab()
-        
-        with tab6:
-            self.manual_analysis_tab()
-        
-        with tab7:
-            self.portfolio_tab()
-        
-        with tab8:
-            self.notifications_tab()
+            with tab1:
+                self.news_analysis_tab()
+            
+            with tab2:
+                self.groq_news_analysis_tab()
+            
+            with tab3:
+                self.recommendations_tab()
+            
+            with tab4:
+                self.swing_trading_tab()
+            
+            with tab5:
+                self.watchlist_tab()
+            
+            with tab6:
+                self.manual_analysis_tab()
+            
+            with tab7:
+                self.portfolio_tab()
+            
+            with tab8:
+                self.notifications_tab()
+                
+        except Exception as e:
+            logger.error(f"Application error: {str(e)}")
+            st.error(f"Application error: {str(e)}")
     
     def create_sidebar(self):
         """Create the sidebar with controls."""
         # Compact sidebar - only show essential controls
         with st.sidebar:
+            # Show logout button
+            login_interface = st.session_state.login_interface
+            login_interface.show_logout_button()
+            
+            # User management section
+            current_user = login_interface.get_current_user()
+            if current_user:
+                st.markdown("### 👤 User Management")
+                
+                # User preferences
+                user_manager = st.session_state.user_manager
+                preferences = user_manager.get_user_preferences(current_user)
+                
+                # Show user info
+                st.caption(f"**User:** {current_user}")
+                st.caption(f"**Role:** {user_manager.users.get(current_user, {}).get('role', 'user')}")
+                
+                # User stats
+                user_stats = user_manager.get_user_stats()
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Total Users", user_stats.get('total_users', 0))
+                with col2:
+                    st.metric("Active Sessions", user_stats.get('active_sessions', 0))
+            
             # Always show essential controls
             st.markdown("### 🚀 Quick Actions")
             
@@ -584,15 +711,45 @@ class StreamlitTradingApp:
             st.markdown("---")
             st.markdown("### 🔑 API Keys")
             
-            # Groq API Key
-            groq_key = st.text_input(
-                "Groq API Key",
-                value=st.session_state.saved_groq_key,
-                type="password",
-                help="Enter your Groq API key",
-                placeholder="gsk_..."
-            )
+            # Show API key status
+            groq_status = "✅ Valid" if self.groq_analyzer.initialized else "❌ Invalid/Missing"
+            gemini_status = "✅ Valid" if self.gemini_analyzer.initialized else "❌ Invalid/Missing"
             
+            st.caption(f"**Groq:** {groq_status}")
+            st.caption(f"**Gemini:** {gemini_status}")
+            
+            # Load Saved Keys button (for new browsers)
+            if not st.session_state.api_keys_initialized:
+                if st.button("📂 Load Saved Keys", key="load_saved_keys", help="Load previously saved API keys"):
+                    # Load saved keys from files
+                    groq_saved = self.load_saved_api_key('groq')
+                    gemini_saved = self.load_saved_api_key('gemini')
+                    
+                    if groq_saved:
+                        if self.groq_analyzer.set_api_key(groq_saved):
+                            st.session_state.saved_groq_key = groq_saved
+                        else:
+                            st.warning("Groq API key validation failed")
+                    
+                    if gemini_saved:
+                        if self.gemini_analyzer.set_api_key(gemini_saved):
+                            st.session_state.saved_gemini_key = gemini_saved
+                        else:
+                            st.warning("Gemini API key validation failed")
+                    
+                    st.session_state.api_keys_initialized = True
+                    st.success("✅ Loaded saved API keys!")
+                    st.rerun()
+        
+        # Groq API Key
+            groq_key = st.text_input(
+            "Groq API Key",
+            value=st.session_state.saved_groq_key,
+            type="password",
+                help="Enter your Groq API key",
+            placeholder="gsk_..."
+        )
+        
             # Groq API Key Actions
             col1, col2 = st.columns(2)
             with col1:
@@ -600,15 +757,12 @@ class StreamlitTradingApp:
                     if groq_key and groq_key != st.session_state.saved_groq_key:
                         if self.save_api_key('groq', groq_key):
                             st.session_state.saved_groq_key = groq_key
-                            # Reinitialize Groq analyzer with new key
-                            self.groq_analyzer.api_key = groq_key
-                            self.groq_analyzer.initialized = True
-                            st.success("✅ Saved and initialized!")
+                            st.success("✅ Saved and validated!")
                         else:
-                            st.error("❌ Failed to save")
+                            st.error("❌ Failed to save or validate")
                     else:
                         st.info("ℹ️ No changes to save")
-            
+        
             with col2:
                 if st.button("🗑️ Delete", key="delete_groq"):
                     if self.delete_saved_api_key('groq'):
@@ -619,7 +773,7 @@ class StreamlitTradingApp:
                         st.success("✅ Groq API key deleted!")
                     else:
                         st.error("❌ Failed to delete Groq API key")
-            
+        
             # Gemini API Key
             gemini_key = st.text_input(
                 "Gemini API Key",
@@ -628,7 +782,7 @@ class StreamlitTradingApp:
                 help="Enter your Gemini API key",
                 placeholder="AIza..."
             )
-            
+        
             # Gemini API Key Actions
             col1, col2 = st.columns(2)
             with col1:
@@ -636,12 +790,9 @@ class StreamlitTradingApp:
                     if gemini_key and gemini_key != st.session_state.saved_gemini_key:
                         if self.save_api_key('gemini', gemini_key):
                             st.session_state.saved_gemini_key = gemini_key
-                            # Reinitialize Gemini analyzer with new key
-                            self.gemini_analyzer.api_key = gemini_key
-                            self.gemini_analyzer.initialized = True
-                            st.success("✅ Saved and initialized!")
+                            st.success("✅ Saved and validated!")
                         else:
-                            st.error("❌ Failed to save")
+                            st.error("❌ Failed to save or validate")
                     else:
                         st.info("ℹ️ No changes to save")
             
@@ -719,98 +870,6 @@ class StreamlitTradingApp:
                     st.rerun()
             else:
                 st.warning("Scheduler not initialized")
-        
-        
-        if gemini_key:
-            # Update the Gemini analyzer with the new key
-            if hasattr(self, 'gemini_analyzer'):
-                self.gemini_analyzer.api_key = gemini_key
-                self.gemini_analyzer.initialized = True
-                if gemini_key == st.session_state.saved_gemini_key:
-                    st.sidebar.success("✅ Gemini API key loaded from saved settings!")
-                else:
-                    st.sidebar.success("✅ Gemini API key set! (Click Save to remember)")
-            else:
-                st.sidebar.warning("⚠️ Gemini analyzer not initialized")
-        else:
-            if hasattr(self, 'gemini_analyzer'):
-                self.gemini_analyzer.initialized = False
-                st.sidebar.info("ℹ️ Enter Gemini API key to enable comprehensive AI analysis")
-        
-        st.sidebar.markdown("---")
-        
-        # Market Analysis Section
-        st.sidebar.header("📊 Market Analysis")
-        
-        if st.sidebar.button("🔍 Analyze Market", type="primary", use_container_width=True):
-            self.analyze_market()
-        
-        if st.sidebar.button("📰 Fetch News", use_container_width=True):
-            self.fetch_news()
-        
-        if st.sidebar.button("🤖 Fetch Groq Analysis", use_container_width=True):
-            self.fetch_groq_news_analysis()
-        
-        # Status
-        st.sidebar.header("📈 Status")
-        if st.session_state.last_analysis_time:
-            st.sidebar.success(f"Last Analysis: {st.session_state.last_analysis_time}")
-        else:
-            st.sidebar.info("No analysis performed yet")
-        
-        # Quick Stats
-        st.sidebar.header("📊 Quick Stats")
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            st.metric("Recommendations", len(st.session_state.recommendations))
-        with col2:
-            st.metric("Watchlist Items", len(st.session_state.watchlist))
-        
-        # API Status
-        st.sidebar.header("📊 API Status")
-        
-        # Groq AI Status
-        if hasattr(self, 'groq_analyzer') and self.groq_analyzer.initialized:
-            st.sidebar.success("🤖 Groq AI: Active")
-        else:
-            st.sidebar.warning("🤖 Groq AI: Inactive")
-            st.sidebar.caption("Add API key in Configuration section")
-        
-        # Gemini AI Status
-        if hasattr(self, 'gemini_analyzer') and self.gemini_analyzer.initialized:
-            st.sidebar.success("🧠 Gemini AI: Active")
-        else:
-            st.sidebar.warning("🧠 Gemini AI: Inactive")
-            st.sidebar.caption("Add API key in Configuration section")
-        
-        # Learning System Status
-        if st.session_state.learning_available:
-            st.sidebar.success("📚 Learning System: Active")
-        else:
-            st.sidebar.warning("📚 Learning System: Unavailable")
-        
-        # Firebase Status
-        if st.session_state.firebase_available:
-            st.sidebar.success("☁️ Firebase Sync: Active")
-        else:
-            st.sidebar.warning("☁️ Firebase Sync: Unavailable")
-        
-        # Cache Statistics
-        st.sidebar.header("💾 Cache Statistics")
-        cache_manager = st.session_state.cache_manager
-        cache_stats = cache_manager.get_cache_stats()
-        
-        if cache_stats:
-            st.sidebar.metric("Cached Articles", cache_stats.get('articles_cache_size', 0))
-            st.sidebar.metric("Cached Stocks", cache_stats.get('stocks_cache_size', 0))
-            st.sidebar.metric("Cached Analysis", cache_stats.get('analysis_cache_size', 0))
-            
-            st.sidebar.caption("Cache Duration: 7 days")
-            
-            if st.sidebar.button("🗑️ Clear Cache"):
-                cache_manager.clear_cache('all')
-                st.sidebar.success("Cache cleared!")
-                st.rerun()
     
     def news_analysis_tab(self):
         """News Analysis tab."""
@@ -1360,27 +1419,57 @@ class StreamlitTradingApp:
             st.markdown("---")
             
             # Header row
-            col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8])
+            col1, col2, col3, col4, col5, col6, col7, col8, col9 = st.columns([1.5, 1, 1, 1, 1, 1, 1, 0.8, 0.8])
             with col1:
                 st.markdown("**Stock**")
             with col2:
-                st.markdown("**Entry Price**")
-            with col3:
                 st.markdown("**CMP**")
+            with col3:
+                st.markdown("**Entry Price**")
             with col4:
                 st.markdown("**P&L**")
             with col5:
-                st.markdown("**Date Added**")
+                st.markdown("**Target**")
             with col6:
-                st.markdown("**Status**")
+                st.markdown("**Stop Loss**")
             with col7:
+                st.markdown("**Status**")
+            with col8:
                 st.markdown("**Details**")
+            with col9:
+                st.markdown("**Actions**")
             
             st.markdown("---")
             
             # Display watchlist items in rows
             for i, item in enumerate(st.session_state.watchlist):
+                # Check for recommendation changes for this stock
+                symbol = item.get('symbol', '')
+                if symbol:
+                    cache_manager = st.session_state.cache_manager
+                    changes = cache_manager.get_recommendation_changes(symbol)
+                    if changes and symbol in changes:
+                        change_info = changes[symbol]
+                        item['recommendation_changed'] = True
+                        item['recommendation_change_type'] = change_info.get('change_type', '')
+                        item['recommendation_change_details'] = change_info.get('change_details', {})
+                        item['recommendation_last_updated'] = change_info.get('last_updated', '')
+                    else:
+                        item['recommendation_changed'] = False
+                
+                # Display watchlist row
                 ExpandableUI.display_watchlist_row(item, i)
+                
+                # Add delete button in a separate row
+                col1, col2, col3, col4, col5, col6, col7, col8, col9 = st.columns([1.5, 1, 1, 1, 1, 1, 1, 0.8, 0.8])
+                with col9:
+                    if st.button("🗑️", key=f"delete_watchlist_{i}", help=f"Delete {item.get('symbol', 'stock')} from watchlist"):
+                        # Remove item from watchlist
+                        st.session_state.watchlist.pop(i)
+                        # Auto-save updated watchlist
+                        self._auto_save_watchlist()
+                        st.success(f"Removed {item.get('symbol', 'stock')} from watchlist!")
+                        st.rerun()
         else:
             st.info("No stocks in watchlist. Add stocks from recommendations or manual analysis.")
     
@@ -1451,9 +1540,367 @@ class StreamlitTradingApp:
             self.display_manual_analysis_result()
     
     def portfolio_tab(self):
-        """Portfolio tab."""
-        st.header("📊 Portfolio Tracking")
-        st.info("Portfolio tracking feature will be implemented in future updates.")
+        """Portfolio tab with Excel upload and analysis."""
+        st.header("📊 Portfolio Management")
+        
+        portfolio_manager = st.session_state.portfolio_manager
+        
+        # Portfolio summary
+        summary = portfolio_manager.get_portfolio_summary()
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Stocks", summary['total_items'])
+        with col2:
+            st.metric("Total Value", f"₹{summary['total_value']:,.0f}")
+        with col3:
+            st.metric("Total P&L", f"₹{summary['total_pnl']:,.0f}")
+        with col4:
+            st.metric("Avg P&L", f"{summary['avg_pnl_percent']:.1f}%")
+        
+        st.markdown("---")
+        
+        # Excel Upload Section
+        st.subheader("📤 Upload Portfolio from Excel")
+        st.info("Upload your portfolio using the Excel format with columns: Scrip Name, Free Qty, Rate, Valuation")
+        
+        uploaded_file = st.file_uploader(
+            "Choose Excel file",
+            type=['xlsx', 'xls'],
+            help="Upload Excel file with portfolio data"
+        )
+        
+        if uploaded_file is not None:
+            if st.button("📊 Process Portfolio", key="process_portfolio"):
+                with st.spinner("Processing portfolio data..."):
+                    result = portfolio_manager.upload_excel_portfolio(uploaded_file)
+                    
+                    if result['success']:
+                        st.success(result['message'])
+                        st.rerun()
+                    else:
+                        st.error(result['message'])
+        
+        # Portfolio Actions
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🔄 Update Prices", key="update_portfolio_prices"):
+                self.update_portfolio_prices()
+        
+        with col2:
+            if st.button("📊 Analyze Portfolio", key="analyze_portfolio"):
+                self.analyze_portfolio()
+        
+        with col3:
+            if st.button("🗑️ Clear Portfolio", key="clear_portfolio"):
+                portfolio_manager.portfolio_data = []
+                portfolio_manager.save_portfolio()
+                st.success("Portfolio cleared!")
+                st.rerun()
+        
+        # Display Portfolio
+        if portfolio_manager.portfolio_data:
+            st.subheader(f"📋 Portfolio ({len(portfolio_manager.portfolio_data)} stocks)")
+            
+            # Header row
+            col1, col2, col3, col4, col5, col6, col7, col8, col9 = st.columns([1.5, 1, 1, 1, 1, 1, 1, 0.8, 0.8])
+            with col1:
+                st.markdown("**Stock**")
+            with col2:
+                st.markdown("**Qty**")
+            with col3:
+                st.markdown("**Entry Price**")
+            with col4:
+                st.markdown("**CMP**")
+            with col5:
+                st.markdown("**P&L**")
+            with col6:
+                st.markdown("**Recommendation**")
+            with col7:
+                st.markdown("**Last Analyzed**")
+            with col8:
+                st.markdown("**Details**")
+            with col9:
+                st.markdown("**Actions**")
+            
+            st.markdown("---")
+            
+            # Display portfolio items
+            for i, item in enumerate(portfolio_manager.portfolio_data):
+                symbol = item.get('symbol', 'N/A')
+                scrip_name = item.get('scrip_name', symbol)
+                free_qty = item.get('free_qty', 0)
+                entry_price = item.get('entry_price', 0)
+                current_price = item.get('current_price', 0)
+                pnl_percent = item.get('pnl_percent', 0)
+                recommendation = item.get('recommendation', 'HOLD')
+                last_analyzed = item.get('last_analyzed', 'Never')
+                
+                # Format last analyzed date
+                if last_analyzed and last_analyzed != 'Never':
+                    try:
+                        from datetime import datetime
+                        analyzed_date = datetime.fromisoformat(last_analyzed)
+                        last_analyzed = analyzed_date.strftime('%m/%d %H:%M')
+                    except:
+                        pass
+                
+                # Display row
+                col1, col2, col3, col4, col5, col6, col7, col8, col9 = st.columns([1.5, 1, 1, 1, 1, 1, 1, 0.8, 0.8])
+                
+                with col1:
+                    st.write(f"**{symbol}**")
+                    st.caption(scrip_name)
+                
+                with col2:
+                    st.write(f"{free_qty:.0f}")
+                
+                with col3:
+                    st.write(f"₹{entry_price:.2f}")
+                
+                with col4:
+                    st.write(f"₹{current_price:.2f}")
+                
+                with col5:
+                    if pnl_percent > 0:
+                        st.markdown(f'<span style="color: #28a745;">+{pnl_percent:.1f}%</span>', unsafe_allow_html=True)
+                    elif pnl_percent < 0:
+                        st.markdown(f'<span style="color: #dc3545;">{pnl_percent:.1f}%</span>', unsafe_allow_html=True)
+                    else:
+                        st.write("0.0%")
+                
+                with col6:
+                    if recommendation == 'BUY':
+                        st.markdown('<span style="color: #28a745;">📈 BUY</span>', unsafe_allow_html=True)
+                    elif recommendation == 'SELL':
+                        st.markdown('<span style="color: #dc3545;">📉 SELL</span>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<span style="color: #ffc107;">➡️ HOLD</span>', unsafe_allow_html=True)
+                
+                with col7:
+                    st.write(last_analyzed)
+                
+                with col8:
+                    if st.button("➕", key=f"portfolio_details_{i}", help="View portfolio details"):
+                        self.show_portfolio_item_details(item, i)
+                
+                with col9:
+                    if st.button("🗑️", key=f"delete_portfolio_{i}", help=f"Delete {symbol} from portfolio"):
+                        if portfolio_manager.remove_portfolio_item(symbol):
+                            st.success(f"Removed {symbol} from portfolio!")
+                            st.rerun()
+                        else:
+                            st.error(f"Failed to remove {symbol}")
+        else:
+            st.info("No portfolio data. Upload an Excel file to get started.")
+    
+    def update_portfolio_prices(self):
+        """Update portfolio prices with current market data."""
+        portfolio_manager = st.session_state.portfolio_manager
+        
+        if not portfolio_manager.portfolio_data:
+            st.error("No portfolio data to update")
+            return
+        
+        with st.spinner("🔄 Updating portfolio prices..."):
+            try:
+                # Get current prices for all portfolio symbols
+                price_data = {}
+                for item in portfolio_manager.portfolio_data:
+                    symbol = item.get('symbol')
+                    if symbol:
+                        try:
+                            symbol_with_suffix = f"{symbol}.NS"
+                            ticker = yf.Ticker(symbol_with_suffix)
+                            hist = ticker.history(period="1d")
+                            
+                            if not hist.empty:
+                                current_price = float(hist['Close'].iloc[-1])
+                                price_data[symbol] = current_price
+                        except Exception as e:
+                            logger.warning(f"Could not get price for {symbol}: {str(e)}")
+                
+                # Update portfolio with new prices
+                portfolio_manager.update_portfolio_prices(price_data)
+                
+                st.success(f"✅ Updated prices for {len(price_data)} stocks")
+                
+            except Exception as e:
+                st.error(f"Error updating portfolio prices: {str(e)}")
+    
+    def analyze_portfolio(self):
+        """Analyze portfolio and provide recommendations."""
+        portfolio_manager = st.session_state.portfolio_manager
+        
+        if not portfolio_manager.portfolio_data:
+            st.error("No portfolio data to analyze")
+            return
+        
+        with st.spinner("📊 Analyzing portfolio..."):
+            try:
+                # Get items that need analysis (7+ days old or never analyzed)
+                items_to_analyze = portfolio_manager.get_items_for_analysis()
+                
+                if not items_to_analyze:
+                    st.info("No portfolio items need analysis at this time")
+                    return
+                
+                st.info(f"Analyzing {len(items_to_analyze)} portfolio items...")
+                
+                analyzed_count = 0
+                progress_bar = st.progress(0)
+                
+                for i, item in enumerate(items_to_analyze):
+                    symbol = item.get('symbol')
+                    if not symbol:
+                        continue
+                    
+                    try:
+                        symbol_with_suffix = f"{symbol}.NS"
+                        
+                        # Validate stock before analysis
+                        if not self.fundamental_analyzer.is_stock_valid(symbol_with_suffix):
+                            logger.warning(f"Skipping {symbol} - appears to be delisted or has no data")
+                            continue
+                        
+                        # Get technical analysis
+                        technical_data = self.technical_analyzer.analyze_stock(symbol_with_suffix)
+                        if not technical_data:
+                            continue
+                        
+                        # Get fundamental analysis
+                        fundamental_data = self.fundamental_analyzer.get_financial_data(symbol_with_suffix)
+                        
+                        # Get news sentiment
+                        news_sentiment = 0.5  # Default neutral
+                        if st.session_state.news_articles:
+                            news_sentiment = self.news_analyzer.analyze_news_sentiment(st.session_state.news_articles)
+                        
+                        # Get Groq analysis
+                        groq_analysis = self.groq_analyzer.get_comprehensive_stock_analysis(
+                            symbol, technical_data, fundamental_data, st.session_state.news_articles
+                        )
+                        
+                        # Generate AI recommendation
+                        ai_recommendation = self.ai_engine.generate_ai_recommendation(
+                            fundamental_data, technical_data, news_sentiment, [], groq_analysis, None
+                        )
+                        
+                        # Apply learning to recommendation
+                        performance_learning = st.session_state.performance_learning
+                        improved_recommendation = performance_learning.apply_learning_to_recommendation(
+                            symbol, technical_data, groq_analysis, ai_recommendation
+                        )
+                        
+                        # Update portfolio item with analysis
+                        portfolio_manager.analyze_portfolio_item(
+                            item, technical_data, fundamental_data, news_sentiment, 
+                            groq_analysis, improved_recommendation
+                        )
+                        
+                        analyzed_count += 1
+                        progress_bar.progress((i + 1) / len(items_to_analyze))
+                        
+                    except Exception as e:
+                        logger.error(f"Error analyzing portfolio item {symbol}: {str(e)}")
+                        continue
+                
+                # Save updated portfolio
+                portfolio_manager.save_portfolio()
+                
+                st.success(f"✅ Analyzed {analyzed_count} portfolio items")
+                
+            except Exception as e:
+                st.error(f"Error analyzing portfolio: {str(e)}")
+    
+    def show_portfolio_item_details(self, item: Dict, index: int):
+        """Show detailed portfolio item information in a modal."""
+        try:
+            symbol = item.get('symbol', 'UNKNOWN')
+            scrip_name = item.get('scrip_name', symbol)
+            modal_title = f"📊 {symbol} Portfolio Details"
+            
+            with st.modal(modal_title):
+                st.markdown("### 📊 Portfolio Position")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**📋 Position Details**")
+                    st.write(f"• **Symbol:** {symbol}")
+                    st.write(f"• **Scrip Name:** {scrip_name}")
+                    st.write(f"• **Quantity:** {item.get('free_qty', 0):.0f}")
+                    st.write(f"• **Entry Price:** ₹{item.get('entry_price', 0):.2f}")
+                    st.write(f"• **Current Price:** ₹{item.get('current_price', 0):.2f}")
+                    st.write(f"• **Date Added:** {item.get('date_added', 'N/A')}")
+                
+                with col2:
+                    st.markdown("**💰 Financial Details**")
+                    st.write(f"• **Valuation:** ₹{item.get('valuation', 0):,.0f}")
+                    st.write(f"• **Current Market Value:** ₹{item.get('current_market_value', 0):,.0f}")
+                    st.write(f"• **P&L Amount:** ₹{item.get('pnl_amount', 0):,.0f}")
+                    st.write(f"• **P&L Percentage:** {item.get('pnl_percent', 0):.2f}%")
+                    st.write(f"• **Analysis Count:** {item.get('analysis_count', 0)}")
+                
+                # Recommendation details
+                st.markdown("### 📈 Current Recommendation")
+                recommendation = item.get('recommendation', 'HOLD')
+                confidence = item.get('confidence', 0)
+                target_price = item.get('target_price', 0)
+                stop_loss = item.get('stop_loss', 0)
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Recommendation", recommendation)
+                with col2:
+                    st.metric("Confidence", f"{confidence:.1f}%")
+                with col3:
+                    st.metric("Target Price", f"₹{target_price:.2f}")
+                with col4:
+                    st.metric("Stop Loss", f"₹{stop_loss:.2f}")
+                
+                # Reasoning
+                reasoning = item.get('reasoning', '')
+                if reasoning:
+                    st.markdown("### 💭 Analysis Reasoning")
+                    st.markdown(reasoning)
+                
+                # Technical analysis
+                technical_data = item.get('technical_analysis', {})
+                if technical_data:
+                    st.markdown("### 📊 Technical Analysis")
+                    tech_col1, tech_col2 = st.columns(2)
+                    
+                    with tech_col1:
+                        st.write(f"• **RSI:** {technical_data.get('rsi', 0):.1f}")
+                        st.write(f"• **MACD:** {technical_data.get('macd', 0):.4f}")
+                        st.write(f"• **SMA 20:** ₹{technical_data.get('sma_20', 0):.2f}")
+                    
+                    with tech_col2:
+                        st.write(f"• **Volume Ratio:** {technical_data.get('volume_ratio_20', 0):.2f}")
+                        st.write(f"• **ATR:** ₹{technical_data.get('atr', 0):.2f}")
+                        st.write(f"• **Bollinger Position:** {technical_data.get('bb_position', 0):.2f}")
+                
+                # Close button
+                if st.button("❌ Close", key=f"close_portfolio_modal_{index}"):
+                    st.rerun()
+                    
+        except Exception as e:
+            logger.error(f"Error showing portfolio item details: {str(e)}")
+            st.error("Error displaying portfolio details")
+    
+    def _show_ai_service_status(self, analysis_result: Dict, service_name: str = "AI"):
+        """Show AI service status and fallback information."""
+        try:
+            if analysis_result and analysis_result.get('status') == 'success':
+                ai_source = analysis_result.get('source', 'Unknown')
+                if 'Fallback' in ai_source:
+                    st.caption(f"⚠️ {service_name}: Using {ai_source}")
+                else:
+                    st.caption(f"✅ {service_name}: Using {ai_source}")
+        except Exception as e:
+            logger.error(f"Error showing AI service status: {str(e)}")
     
     def notifications_tab(self):
         """Notifications management tab."""
@@ -1817,27 +2264,41 @@ class StreamlitTradingApp:
         st.success(f"Found {len(watchlist)} watchlist items")
         
         # Header row
-        col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8])
+        col1, col2, col3, col4, col5, col6, col7, col8, col9 = st.columns([1.5, 1, 1, 1, 1, 1, 1, 0.8, 0.8])
         with col1:
             st.markdown("**Stock**")
         with col2:
-            st.markdown("**Entry Price**")
-        with col3:
             st.markdown("**CMP**")
+        with col3:
+            st.markdown("**Entry Price**")
         with col4:
             st.markdown("**P&L**")
         with col5:
-            st.markdown("**Date Added**")
+            st.markdown("**Target**")
         with col6:
-            st.markdown("**Status**")
+            st.markdown("**Stop Loss**")
         with col7:
+            st.markdown("**Status**")
+        with col8:
             st.markdown("**Details**")
+        with col9:
+            st.markdown("**Actions**")
         
         st.markdown("---")
         
         # Display each watchlist item
         for i, item in enumerate(watchlist):
             ExpandableUI.display_watchlist_row(item, i)
+            
+            # Add delete button for saved watchlist
+            col1, col2, col3, col4, col5, col6, col7, col8, col9 = st.columns([1.5, 1, 1, 1, 1, 1, 1, 0.8, 0.8])
+            with col9:
+                if st.button("🗑️", key=f"delete_saved_watchlist_{i}", help=f"Delete {item.get('symbol', 'stock')} from saved watchlist"):
+                    # Remove item from saved watchlist
+                    watchlist.pop(i)
+                    data_persistence.save_watchlist(watchlist)
+                    st.success(f"Removed {item.get('symbol', 'stock')} from saved watchlist!")
+                    st.rerun()
     
     def display_saved_swing_strategies(self):
         """Display saved swing strategies."""
@@ -2090,20 +2551,37 @@ class StreamlitTradingApp:
                 st.success(f"✅ Fetched {len(all_news)} total articles, {len(new_articles)} new articles")
                 
                 # Step 2: Analyze with Groq AI to get stocks with sentiment impact
-                st.info("🤖 Step 2: Analyzing news with Groq AI...")
+                st.info("🤖 Step 2: Analyzing news with AI (Groq/Gemini)...")
                 groq_news_data = self.groq_analyzer.analyze_top_10_news_with_full_content(all_news)
                 
                 if groq_news_data.get('status') != 'success':
-                    st.error(f"❌ Groq analysis failed: {groq_news_data.get('message', 'Unknown error')}")
+                    st.error(f"❌ AI analysis failed: {groq_news_data.get('message', 'Unknown error')}")
                     return
                 
-                # Extract stocks from Groq analysis and validate them
+                # Show which AI service was used
+                ai_source = groq_news_data.get('source', 'Unknown')
+                if 'Fallback' in ai_source:
+                    st.warning(f"⚠️ Using {ai_source} - primary service unavailable")
+                else:
+                    st.success(f"✅ Using {ai_source}")
+                
+                # Extract stocks from Groq analysis and validate them using EQUITY.csv
                 all_news_stocks = [item.get('symbol', '') for item in groq_news_data.get('articles', []) if item.get('symbol')]
-                news_stocks = self._validate_nse_stocks(all_news_stocks)
+                equity_loader = st.session_state.equity_loader
+                news_stocks = equity_loader.validate_stock_symbols(all_news_stocks)
                 
                 if len(news_stocks) != len(all_news_stocks):
                     invalid_stocks = set(all_news_stocks) - set(news_stocks)
                     st.warning(f"⚠️ Filtered out {len(invalid_stocks)} invalid/delisted stocks: {', '.join(list(invalid_stocks)[:5])}")
+                
+                # If we don't have enough stocks from news, get additional stocks from EQUITY.csv
+                if len(news_stocks) < 5:
+                    st.info(f"📈 Getting additional stocks from EQUITY.csv to ensure at least 5 recommendations...")
+                    additional_stocks = equity_loader.get_top_stocks(20)  # Get top 20 stocks
+                    # Filter out stocks already in news and watchlist
+                    watchlist_symbols = [item.get('symbol', '') for item in st.session_state.watchlist]
+                    additional_stocks = [s for s in additional_stocks if s not in news_stocks and s not in watchlist_symbols]
+                    news_stocks.extend(additional_stocks[:10])  # Add up to 10 additional stocks
                 
                 # Filter out stocks already in watchlist (unless very negative news)
                 filtered_stocks = cache_manager.filter_watchlist_stocks(
@@ -2113,18 +2591,21 @@ class StreamlitTradingApp:
                 )
                 
                 # Get symbols from filtered stocks
-                news_stocks = [stock.get('symbol', '') for stock in filtered_stocks if stock.get('symbol')]
+                filtered_news_stocks = [stock.get('symbol', '') for stock in filtered_stocks if stock.get('symbol')]
                 
-                st.success(f"✅ Identified {len(news_stocks)} valid NSE stocks with sentiment impact (after watchlist filtering)")
+                # Combine news stocks with additional stocks, ensuring we have enough
+                all_analysis_stocks = list(set(news_stocks + filtered_news_stocks))
                 
-                # Step 3: Analyze news stocks
-                st.info("📊 Step 3: Analyzing stocks from news...")
+                st.success(f"✅ Identified {len(all_analysis_stocks)} valid stocks for analysis (from news + EQUITY.csv)")
+                
+                # Step 3: Analyze stocks
+                st.info("📊 Step 3: Analyzing stocks for contrarian opportunities...")
                 news_recommendations = []
                 
                 progress_bar = st.progress(0)
-                total_stocks = len(news_stocks)
+                total_stocks = len(all_analysis_stocks)
                 
-                for i, symbol in enumerate(news_stocks):
+                for i, symbol in enumerate(all_analysis_stocks):
                     try:
                         symbol_with_suffix = f"{symbol}.NS"
                         
@@ -2142,35 +2623,52 @@ class StreamlitTradingApp:
                             logger.info(f"Using cached analysis for {symbol}")
                         else:
                             # Perform fresh analysis
-                            # Get technical analysis
-                            technical_data = self.technical_analyzer.analyze_stock(symbol_with_suffix)
-                            if not technical_data:
+                            # Validate stock before analysis
+                            if not self.fundamental_analyzer.is_stock_valid(symbol_with_suffix):
+                                logger.warning(f"Skipping {symbol} - appears to be delisted or has no data")
                                 continue
-                            
-                            # Get fundamental analysis
-                            fundamental_data = self.fundamental_analyzer.get_financial_data(symbol_with_suffix)
-                            
-                            # Get comprehensive Groq AI analysis using the analyzed news
-                            groq_analysis = self.groq_analyzer.get_comprehensive_stock_analysis(
+                        
+                        # Get technical analysis
+                        technical_data = self.technical_analyzer.analyze_stock(symbol_with_suffix)
+                        if not technical_data:
+                            continue
+                        
+                        # Get fundamental analysis
+                        fundamental_data = self.fundamental_analyzer.get_financial_data(symbol_with_suffix)
+                        
+                        # Get comprehensive Groq AI analysis using the analyzed news
+                        groq_analysis = self.groq_analyzer.get_comprehensive_stock_analysis(
                                 symbol, technical_data, fundamental_data, all_news
+                        )
+                        
+                        # Get Gemini AI analysis
+                        gemini_analysis = None
+                        if self.gemini_analyzer.initialized:
+                            gemini_analysis = self.gemini_analyzer.analyze_stock_comprehensive(
+                                symbol, technical_data, fundamental_data, st.session_state.news_articles, groq_analysis
                             )
-                            
-                            # Get Gemini AI analysis
-                            gemini_analysis = None
-                            if self.gemini_analyzer.initialized:
-                                gemini_analysis = self.gemini_analyzer.analyze_stock_comprehensive(
-                                    symbol, technical_data, fundamental_data, st.session_state.news_articles, groq_analysis
-                                )
-                            
-                            # Generate AI recommendation
-                            # Calculate news sentiment for this stock
-                            news_sentiment = 0.5  # Default neutral
-                            if all_news:
-                                news_sentiment = self.news_analyzer.analyze_news_sentiment(all_news)
-                            
-                            recommendation = self.ai_engine.generate_ai_recommendation(
-                                technical_data, technical_data, news_sentiment, [], groq_analysis, gemini_analysis
-                            )
+                        
+                        # Generate AI recommendation
+                        # Calculate news sentiment for this stock
+                        news_sentiment = 0.5  # Default neutral
+                        if all_news:
+                            news_sentiment = self.news_analyzer.analyze_news_sentiment(all_news)
+                        
+                        recommendation = self.ai_engine.generate_ai_recommendation(
+                            fundamental_data, technical_data, news_sentiment, [], groq_analysis, gemini_analysis
+                        )
+                        
+                        # Smart caching: Only cache if stock is relevant
+                        news_impact = 'MEDIUM'  # Default impact level
+                        if groq_analysis and groq_analysis.get('status') == 'success':
+                            impact_level = groq_analysis.get('impact_level', 'MEDIUM')
+                            if impact_level in ['HIGH', 'MEDIUM', 'LOW']:
+                                news_impact = impact_level
+                        
+                        # Check if stock is relevant for caching
+                        if cache_manager.is_stock_relevant_for_caching(symbol, recommendation, news_impact):
+                            # Cache the recommendation with change detection
+                            recommendation = cache_manager.cache_recommendation(symbol, recommendation)
                             
                             # Cache the analysis
                             analysis_data = {
@@ -2181,9 +2679,26 @@ class StreamlitTradingApp:
                                 'recommendation': recommendation
                             }
                             cache_manager.cache_stock_analysis(symbol, analysis_data)
+                        else:
+                            logger.info(f"Skipping cache for {symbol} - not relevant enough (confidence: {recommendation.get('confidence', 0):.1f}%, impact: {news_impact})")
                         
                         # Only include BUY recommendations (SKIP others)
                         if recommendation.get('action') == 'BUY':
+                            # Apply performance learning to improve recommendation
+                            performance_learning = st.session_state.performance_learning
+                            improved_recommendation = performance_learning.apply_learning_to_recommendation(
+                                symbol, technical_data, groq_analysis, recommendation
+                            )
+                            
+                            # Record recommendation for future learning
+                            learning_id = performance_learning.record_recommendation(
+                                symbol, improved_recommendation, technical_data, 
+                                fundamental_data, news_sentiment, groq_analysis
+                            )
+                            
+                            # Use improved recommendation
+                            recommendation = improved_recommendation
+                            
                             # Generate swing trading plan
                             swing_strategy = st.session_state.swing_strategy
                             # Get company name from groq analysis or use symbol as fallback
@@ -2240,6 +2755,105 @@ class StreamlitTradingApp:
                         logger.error(f"Error analyzing news stock {symbol}: {str(e)}")
                         continue
                 
+                # Ensure we have at least 5 recommendations
+                if len(news_recommendations) < 5:
+                    st.warning(f"⚠️ Only {len(news_recommendations)} recommendations found. Analyzing more stocks to reach minimum of 5...")
+                    
+                    # Get more stocks from EQUITY.csv
+                    additional_stocks = equity_loader.get_top_stocks(50)
+                    # Filter out already analyzed stocks
+                    already_analyzed = [rec.get('symbol', '') for rec in news_recommendations]
+                    additional_stocks = [s for s in additional_stocks if s not in already_analyzed and s not in all_analysis_stocks]
+                    
+                    # Analyze additional stocks
+                    for symbol in additional_stocks[:20]:  # Analyze up to 20 more stocks
+                        if len(news_recommendations) >= 5:
+                            break
+                            
+                        try:
+                            symbol_with_suffix = f"{symbol}.NS"
+                            
+                            # Validate stock before analysis
+                            if not self.fundamental_analyzer.is_stock_valid(symbol_with_suffix):
+                                logger.warning(f"Skipping additional stock {symbol} - appears to be delisted or has no data")
+                                continue
+                            
+                            # Get technical analysis
+                            technical_data = self.technical_analyzer.analyze_stock(symbol_with_suffix)
+                            if not technical_data:
+                                continue
+                            
+                            # Get fundamental analysis
+                            fundamental_data = self.fundamental_analyzer.get_financial_data(symbol_with_suffix)
+                            
+                            # Get Groq analysis
+                            groq_analysis = self.groq_analyzer.get_comprehensive_stock_analysis(
+                                symbol, technical_data, fundamental_data, all_news
+                            )
+                            
+                            # Calculate news sentiment
+                            news_sentiment = self.news_analyzer.analyze_news_sentiment(all_news)
+                            
+                            # Generate AI recommendation
+                            recommendation = self.ai_engine.generate_ai_recommendation(
+                                fundamental_data, technical_data, news_sentiment, [], groq_analysis, None
+                            )
+                            
+                            # Only include BUY recommendations
+                            if recommendation.get('action') == 'BUY':
+                                # Apply performance learning to improve recommendation
+                                performance_learning = st.session_state.performance_learning
+                                improved_recommendation = performance_learning.apply_learning_to_recommendation(
+                                    symbol, technical_data, groq_analysis, recommendation
+                                )
+                                
+                                # Record recommendation for future learning
+                                learning_id = performance_learning.record_recommendation(
+                                    symbol, improved_recommendation, technical_data, 
+                                    fundamental_data, news_sentiment, groq_analysis
+                                )
+                                
+                                # Use improved recommendation
+                                recommendation = improved_recommendation
+                                
+                                # Generate swing trading plan
+                                company_name = equity_loader.get_company_name(symbol)
+                                swing_plan = swing_strategy.generate_swing_trading_plan({
+                                    'symbol': symbol,
+                                    'company_name': company_name,
+                                    'current_price': technical_data.get('current_price', 0),
+                                    'confidence': recommendation['confidence'],
+                                    'target_price': recommendation['target_price'],
+                                    'stop_loss': recommendation['stop_loss'],
+                                    'technical_data': technical_data,
+                                    'groq_analysis': groq_analysis
+                                })
+                                
+                                # Create recommendation data
+                                rec_data = {
+                                    'symbol': symbol,
+                                    'company_name': company_name,
+                                    'current_price': technical_data.get('current_price', 0),
+                                    'recommendation': recommendation['action'],
+                                    'confidence': recommendation['confidence'],
+                                    'target_price': recommendation['target_price'],
+                                    'stop_loss': recommendation['stop_loss'],
+                                    'reasoning': recommendation['reasoning'],
+                                    'technical_data': technical_data,
+                                    'fundamental_data': fundamental_data,
+                                    'groq_analysis': groq_analysis,
+                                    'gemini_analysis': None,
+                                    'swing_plan': swing_plan,
+                                    'swing_validation': None
+                                }
+                                
+                                news_recommendations.append(rec_data)
+                                logger.info(f"Added additional BUY recommendation for {symbol}")
+                        
+                        except Exception as e:
+                            logger.error(f"Error analyzing additional stock {symbol}: {str(e)}")
+                        continue
+                
                 # Set final recommendations
                 st.session_state.recommendations = news_recommendations
                 st.session_state.last_analysis_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -2251,7 +2865,10 @@ class StreamlitTradingApp:
                 self._auto_save_recommendations()
                 self._auto_save_swing_strategies()
                 
-                st.success(f"✅ Analysis complete! Generated {len(news_recommendations)} BUY recommendations. Data auto-saved for 7 days.")
+                if len(news_recommendations) >= 5:
+                    st.success(f"✅ Analysis complete! Generated {len(news_recommendations)} BUY recommendations (minimum 5 achieved). Data auto-saved for 7 days.")
+                else:
+                    st.warning(f"⚠️ Analysis complete! Generated {len(news_recommendations)} BUY recommendations (less than minimum 5). Data auto-saved for 7 days.")
                 
         except Exception as e:
             st.error(f"❌ Error analyzing market: {str(e)}")
@@ -2264,10 +2881,15 @@ class StreamlitTradingApp:
             try:
                 symbol_with_suffix = f"{symbol}.NS"
                 
+                # Validate stock before analysis
+                if not self.fundamental_analyzer.is_stock_valid(symbol_with_suffix):
+                    st.warning(f"Stock {symbol} appears to be delisted or has no data available. Skipping analysis.")
+                    return
+                
                 # Get technical analysis
                 technical_data = self.technical_analyzer.analyze_stock(symbol_with_suffix)
                 if not technical_data:
-                    st.error(f"No data available for {symbol}")
+                    st.error(f"No technical data available for {symbol}")
                     return
                 
                 # Get fundamental analysis
@@ -2297,7 +2919,7 @@ class StreamlitTradingApp:
                     news_sentiment = self.news_analyzer.analyze_news_sentiment(news_articles)
                 
                 recommendation = self.ai_engine.generate_ai_recommendation(
-                    technical_data, technical_data, news_sentiment, [], groq_analysis, gemini_analysis
+                    fundamental_data, technical_data, news_sentiment, [], groq_analysis, gemini_analysis
                 )
                 
                 # Store result
@@ -2393,13 +3015,14 @@ class StreamlitTradingApp:
             st.error(f"❌ Error adding to watchlist: {str(e)}")
     
     def analyze_watchlist_stocks(self):
-        """Analyze watchlist stocks for learning."""
+        """Analyze watchlist stocks for performance learning."""
         if not st.session_state.watchlist:
             st.error("No stocks in watchlist to analyze")
             return
         
-        with st.spinner("🧠 Learning from watchlist performance..."):
+        with st.spinner("🧠 Analyzing watchlist performance for learning..."):
             try:
+                performance_learning = st.session_state.performance_learning
                 analyzed_count = 0
                 total_count = len(st.session_state.watchlist)
                 
@@ -2418,53 +3041,104 @@ class StreamlitTradingApp:
                         if not technical_data:
                             continue
                         
-                        # Get fundamental analysis
-                        fundamental_data = self.fundamental_analyzer.get_financial_data(symbol_with_suffix)
-                        
-                        # Get news articles for this stock
-                        news_articles = []
-                        for article in st.session_state.news_articles:
-                            if symbol.lower() in article.get('title', '').lower() or symbol.lower() in article.get('description', '').lower():
-                                news_articles.append(article)
-                        
-                        # Get comprehensive Groq AI analysis
-                        groq_analysis = self.groq_analyzer.get_comprehensive_stock_analysis(
-                            symbol, technical_data, fundamental_data, news_articles
-                        )
-                        
-                        # Get Gemini AI learning analysis
-                        gemini_analysis = None
-                        if self.gemini_analyzer.initialized:
-                            gemini_analysis = self.gemini_analyzer.analyze_stock_for_learning(
-                                symbol, technical_data, fundamental_data, news_articles, groq_analysis, item
-                            )
-                        
-                        # Calculate performance
-                        entry_price = item.get('entry_price', 0)
+                        # Get current price
                         current_price = technical_data.get('current_price', 0)
-                        performance_pct = 0
-                        if entry_price > 0 and current_price > 0:
-                            performance_pct = ((current_price - entry_price) / entry_price) * 100
+                        entry_price = item.get('entry_price', 0)
                         
-                        # Update watchlist item
-                        item.update({
-                            'current_price': current_price,
-                            'performance_pct': performance_pct,
-                            'last_learning_analysis': datetime.now().isoformat(),
-                            'learning_insights': gemini_analysis.get('analysis', {}) if gemini_analysis else {}
-                        })
+                        if current_price <= 0 or entry_price <= 0:
+                            continue
                         
+                        # Calculate days held
+                        date_added = item.get('added_date', '')
+                        if date_added:
+                            try:
+                                from datetime import datetime
+                                added_date = datetime.fromisoformat(date_added.replace('Z', '+00:00'))
+                                days_held = (datetime.now() - added_date).days
+                            except:
+                                days_held = 7  # Default to 7 days
+                        else:
+                            days_held = 7
+                        
+                        # Analyze performance if 7+ days held
+                        if days_held >= 7:
+                            # Get fundamental analysis
+                            fundamental_data = self.fundamental_analyzer.get_financial_data(symbol_with_suffix)
+                            
+                            # Get news sentiment
+                            news_sentiment = 0.5  # Default neutral
+                            if st.session_state.news_articles:
+                                news_sentiment = self.news_analyzer.analyze_news_sentiment(st.session_state.news_articles)
+                            
+                            # Get Groq analysis
+                            groq_analysis = self.groq_analyzer.get_comprehensive_stock_analysis(
+                                symbol, technical_data, fundamental_data, st.session_state.news_articles
+                            )
+                            
+                            # Create recommendation data for learning
+                            recommendation_data = {
+                                'action': item.get('recommendation', 'HOLD'),
+                                'confidence': item.get('confidence', 0),
+                                'target_price': item.get('target_price', 0),
+                                'stop_loss': item.get('stop_loss', 0),
+                                'reasoning': f"Watchlist analysis for {symbol}"
+                            }
+                            
+                            # Record recommendation for learning
+                            learning_id = performance_learning.record_recommendation(
+                                symbol, recommendation_data, technical_data, 
+                                fundamental_data, news_sentiment, groq_analysis
+                            )
+                            
+                            # Analyze performance
+                            performance_result = performance_learning.analyze_performance(
+                                symbol, current_price, days_held
+                            )
+                            
+                            if performance_result['success']:
+                                outcome = performance_result['outcome']
+                                st.info(f"📊 {symbol}: {outcome['status']} - {outcome['performance_percent']:.2f}% ({days_held} days)")
                         analyzed_count += 1
+                        
+                        # Update progress
                         progress_bar.progress((i + 1) / total_count)
                         
                     except Exception as e:
                         logger.error(f"Error analyzing watchlist stock {symbol}: {str(e)}")
                         continue
                 
-                st.success(f"✅ Learned from {analyzed_count}/{total_count} watchlist stocks")
+                # Show learning insights
+                insights = performance_learning.get_learning_insights()
+                
+                st.success(f"✅ Analyzed {analyzed_count} watchlist stocks for learning")
+                
+                # Display learning insights
+                if insights['total_recommendations'] > 0:
+                    st.subheader("📚 Learning Insights")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("Total Recommendations", insights['total_recommendations'])
+                    
+                    with col2:
+                        st.metric("Success Rate", f"{insights['overall_success_rate']:.1f}%")
+                    
+                    with col3:
+                        st.metric("Successful", insights['successful_recommendations'])
+                    
+                    with col4:
+                        st.metric("Failed", insights['failed_recommendations'])
+                    
+                    # Show top performing stocks
+                    if insights['top_performing_stocks']:
+                        st.subheader("🏆 Top Performing Stocks")
+                        for symbol, success_rate in insights['top_performing_stocks'][:5]:
+                            st.write(f"• {symbol}: {success_rate:.1f}% success rate")
                 
             except Exception as e:
-                st.error(f"❌ Error in watchlist learning analysis: {str(e)}")
+                st.error(f"Error analyzing watchlist: {str(e)}")
+                logger.error(f"Error in analyze_watchlist_stocks: {str(e)}")
     
     def update_watchlist_prices(self):
         """Update watchlist prices."""

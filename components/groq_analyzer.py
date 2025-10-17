@@ -9,6 +9,8 @@ import json
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime
+import time
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +37,150 @@ class GroqNewsAnalyzer:
         except Exception as e:
             logger.error(f"Error initializing Groq AI: {str(e)}")
     
+    def set_api_key(self, api_key: str):
+        """Set API key and validate it."""
+        try:
+            if not api_key or not api_key.strip():
+                self.api_key = None
+                self.initialized = False
+                logger.warning("Empty API key provided")
+                return False
+            
+            self.api_key = api_key.strip()
+            
+            # Test the API key with a simple request
+            if self._validate_api_key():
+                self.initialized = True
+                logger.info("Groq API key validated and set successfully")
+                return True
+            else:
+                self.initialized = False
+                logger.error("Invalid Groq API key")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error setting Groq API key: {str(e)}")
+            self.initialized = False
+            return False
+    
+    def _validate_api_key(self) -> bool:
+        """Validate the API key with a simple test request."""
+        try:
+            if not self.api_key:
+                return False
+            
+            # Make a simple test request to validate the API key
+            import requests
+            
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            # Simple test payload
+            test_payload = {
+                "model": "llama-3.1-8b-instant",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 10
+            }
+            
+            response = requests.post(
+                self.base_url,
+                headers=headers,
+                json=test_payload,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                return True
+            elif response.status_code == 401:
+                logger.error("Groq API key validation failed: Unauthorized")
+                return False
+            else:
+                logger.warning(f"Groq API key validation returned status {response.status_code}")
+                return True  # Assume valid if not 401
+                
+        except Exception as e:
+            logger.error(f"Error validating Groq API key: {str(e)}")
+            return False
+    
+    def _make_request_with_retry(self, payload: Dict, max_retries: int = 3) -> Optional[Dict]:
+        """Make API request with retry logic for rate limiting."""
+        for attempt in range(max_retries):
+            try:
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+                
+                response = requests.post(
+                    self.base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    return response.json()
+                elif response.status_code == 429:  # Rate limited
+                    if attempt < max_retries - 1:
+                        # Exponential backoff with jitter
+                        wait_time = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(f"Rate limited, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error("Rate limited after all retries")
+                        return None
+                elif response.status_code == 401:
+                    logger.error("Authentication failed - invalid API key")
+                    return None
+                else:
+                    logger.error(f"API request failed with status {response.status_code}: {response.text}")
+                    return None
+                    
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(f"Request timeout, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error("Request timeout after all retries")
+                    return None
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(f"Request error: {str(e)}, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Request failed after all retries: {str(e)}")
+                    return None
+        
+        return None
+    
+    def _get_gemini_fallback(self):
+        """Get Gemini analyzer as fallback."""
+        try:
+            # Import here to avoid circular imports
+            from .gemini_analyzer import GeminiAIAnalyzer
+            return GeminiAIAnalyzer()
+        except Exception as e:
+            logger.error(f"Could not initialize Gemini fallback: {str(e)}")
+            return None
+    
     def analyze_top_10_news_with_full_content(self, news_articles: List[Dict]) -> Dict:
         """Analyze top 10 news articles with full content for stock sentiment."""
         try:
             if not self.initialized:
-                return self._service_unavailable_response("Groq AI not initialized. Please set your GROQ_API_KEY.")
+                logger.warning("Groq not initialized, trying Gemini fallback...")
+                gemini_fallback = self._get_gemini_fallback()
+                if gemini_fallback and gemini_fallback.initialized:
+                    logger.info("Using Gemini fallback for news analysis")
+                    return gemini_fallback.analyze_top_10_news_with_full_content(news_articles)
+                else:
+                    return self._service_unavailable_response("Groq AI not initialized and Gemini fallback unavailable. Please set your API keys.")
             
             if not news_articles:
                 return self._service_unavailable_response("No news articles provided for analysis.")
@@ -158,12 +299,11 @@ Provide analysis for the most impactful news affecting NSE-listed Indian stocks 
                 'Content-Type': 'application/json'
             }
             
-            # Use the same model fallback approach (matching original app)
+            # Use currently available models (desktop app models were decommissioned)
             models_to_try = [
-                "llama-3.1-8b-instant",    # Primary model from original app
-                "llama-3.1-70b-versatile", # Most capable model from original app
-                "mixtral-8x7b-32768",      # Alternative high-performance model
-                "gemma-7b-it"              # Google's model
+                "llama-3.1-8b-instant",     # Primary working model
+                "llama-3.3-70b-versatile",  # Alternative if available
+                "llama-3.1-70b-versatile"   # Fallback if available
             ]
             
             # Try up to 3 times with different models
@@ -241,9 +381,14 @@ Provide analysis for the most impactful news affecting NSE-listed Indian stocks 
                     if attempt < 2:
                         continue
             
-            # If we get here, all attempts failed
-            logger.error("All attempts failed to get valid response from Groq")
-            return self._service_unavailable_response("All Groq AI models are currently unavailable. Please check your API key and try again later.")
+            # If we get here, all attempts failed - try Gemini fallback
+            logger.error("All attempts failed to get valid response from Groq, trying Gemini fallback...")
+            gemini_fallback = self._get_gemini_fallback()
+            if gemini_fallback and gemini_fallback.initialized:
+                logger.info("Using Gemini fallback for news analysis")
+                return gemini_fallback.analyze_top_10_news_with_full_content(news_articles)
+            else:
+                return self._service_unavailable_response("All Groq AI models are currently unavailable and Gemini fallback unavailable. Please check your API keys and try again later.")
             
         except requests.exceptions.Timeout:
             logger.error("Groq API request timed out")
@@ -311,8 +456,7 @@ Provide analysis for the most impactful news affecting NSE-listed Indian stocks 
 
             # Try different models in order of preference (matching original app)
             models_to_try = [
-                "llama-3.1-8b-instant",    # Primary model from original app
-                "llama-3.1-70b-versatile", # Most capable model from original app
+                "llama-3.1-8b-instant",    # Only model to use
                 "mixtral-8x7b-32768",      # Alternative high-performance model
                 "gemma-7b-it"              # Google's model
             ]
@@ -450,12 +594,11 @@ Provide only valid JSON response."""
                 'Content-Type': 'application/json'
             }
             
-            # Use the same model fallback approach (matching original app)
+            # Use currently available models (desktop app models were decommissioned)
             models_to_try = [
-                "llama-3.1-8b-instant",    # Primary model from original app
-                "llama-3.1-70b-versatile", # Most capable model from original app
-                "mixtral-8x7b-32768",      # Alternative high-performance model
-                "gemma-7b-it"              # Google's model
+                "llama-3.1-8b-instant",     # Primary working model
+                "llama-3.3-70b-versatile",  # Alternative if available
+                "llama-3.1-70b-versatile"   # Fallback if available
             ]
             
             response = self._try_models_request(models_to_try, headers, prompt, timeout=30)
@@ -465,7 +608,9 @@ Provide only valid JSON response."""
                 content = result['choices'][0]['message']['content']
                 
                 try:
-                    analysis_data = json.loads(content)
+                    # Try to fix the JSON response first
+                    fixed_content = self._fix_json_response(content)
+                    analysis_data = json.loads(fixed_content)
                     return {
                         'status': 'success',
                         'overall_score': float(analysis_data.get('overall_score', 0.5)),
@@ -560,12 +705,11 @@ Guidelines:
                 'Content-Type': 'application/json'
             }
             
-            # Use the same model fallback approach (matching original app)
+            # Use currently available models (desktop app models were decommissioned)
             models_to_try = [
-                "llama-3.1-8b-instant",    # Primary model from original app
-                "llama-3.1-70b-versatile", # Most capable model from original app
-                "mixtral-8x7b-32768",      # Alternative high-performance model
-                "gemma-7b-it"              # Google's model
+                "llama-3.1-8b-instant",     # Primary working model
+                "llama-3.3-70b-versatile",  # Alternative if available
+                "llama-3.1-70b-versatile"   # Fallback if available
             ]
             
             response = self._try_models_request(models_to_try, headers, prompt, timeout=15)
@@ -575,7 +719,9 @@ Guidelines:
                 content = result['choices'][0]['message']['content']
                 
                 try:
-                    analysis_data = json.loads(content)
+                    # Try to fix the JSON response first
+                    fixed_content = self._fix_json_response(content)
+                    analysis_data = json.loads(fixed_content)
                     return {
                         'status': 'success',
                         'sentiment_score': float(analysis_data.get('sentiment_score', 0)),
@@ -593,8 +739,13 @@ Guidelines:
                 logger.error(f"Groq API error for stock analysis: {response.status_code}")
                 return self._service_unavailable_response(f"Groq API error: {response.status_code}")
             else:
-                logger.error("All Groq models failed for stock analysis - no response received")
-                return self._service_unavailable_response("All available Groq models are currently unavailable. Please try again later.")
+                logger.error("All Groq models failed for stock analysis - trying Gemini fallback...")
+                gemini_fallback = self._get_gemini_fallback()
+                if gemini_fallback and gemini_fallback.initialized:
+                    logger.info("Using Gemini fallback for stock analysis")
+                    return gemini_fallback.get_comprehensive_stock_analysis(symbol, technical_data, fundamental_data, news_articles)
+                else:
+                    return self._service_unavailable_response("All available Groq models are currently unavailable and Gemini fallback unavailable. Please try again later.")
             
         except requests.exceptions.Timeout:
             logger.error("Groq API request timed out for stock analysis")
@@ -624,29 +775,25 @@ Guidelines:
                     "max_tokens": 4000
                 }
                 
-                response = requests.post(self.base_url, headers=headers, json=data, timeout=timeout)
+                # Use retry logic for this request
+                response_data = self._make_request_with_retry(data)
                 
-                if response.status_code == 200:
+                if response_data:
                     logger.info(f"✅ Successfully used model: {model}")
-                    return response
-                elif response.status_code == 400:
-                    # Model not available, try next one
-                    error_msg = f"Model {model} not available"
-                    failed_models.append(error_msg)
-                    logger.warning(f"⚠️ {error_msg}, trying next...")
-                    continue
-                elif response.status_code == 401:
-                    # Authentication error - don't try other models
-                    logger.error(f"❌ Authentication failed for model {model}: {response.text}")
-                    return None
-                elif response.status_code == 429:
-                    # Rate limit - wait a bit and try next
-                    error_msg = f"Model {model} rate limited"
-                    failed_models.append(error_msg)
-                    logger.warning(f"⚠️ {error_msg}, trying next...")
-                    continue
+                    # Create a mock response object with the data
+                    class MockResponse:
+                        def __init__(self, data):
+                            self.status_code = 200
+                            self.json_data = data
+                        def json(self):
+                            return self.json_data
+                        @property
+                        def text(self):
+                            return json.dumps(self.json_data)
+                    return MockResponse(response_data)
                 else:
-                    error_msg = f"Model {model} returned status {response.status_code}"
+                    # Request failed after retries, try next model
+                    error_msg = f"Model {model} failed after retries"
                     failed_models.append(error_msg)
                     logger.warning(f"⚠️ {error_msg}, trying next...")
                     continue
@@ -754,6 +901,28 @@ Guidelines:
     def _fix_json_response(self, content: str) -> str:
         """Try to fix common JSON issues in Groq responses."""
         try:
+            # First, try to extract JSON from code blocks
+            if '```' in content:
+                # Look for JSON code blocks
+                if '```json' in content:
+                    start_marker = '```json'
+                    end_marker = '```'
+                elif '```' in content:
+                    # Generic code block
+                    start_marker = '```'
+                    end_marker = '```'
+                else:
+                    start_marker = None
+                    end_marker = None
+                
+                if start_marker and end_marker:
+                    start_idx = content.find(start_marker)
+                    if start_idx >= 0:
+                        start_idx += len(start_marker)
+                        end_idx = content.find(end_marker, start_idx)
+                        if end_idx > start_idx:
+                            content = content[start_idx:end_idx].strip()
+            
             # Remove any text before the first {
             start_idx = content.find('{')
             if start_idx > 0:

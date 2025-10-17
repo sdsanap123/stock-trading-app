@@ -8,6 +8,8 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import logging
+import time
+import random
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -16,22 +18,190 @@ class FundamentalAnalyzer:
     """Fundamental analysis for stocks."""
     
     def __init__(self):
+        self.request_delay = 1.5  # Base delay between requests (longer than technical)
+        self.max_retries = 3
+        self.last_request_time = 0
         logger.info("Fundamental Analyzer initialized")
+    
+    def _fetch_financial_data_with_retry(self, symbol: str, max_retries: int = 3) -> Optional[Dict]:
+        """Fetch financial data with retry logic for rate limiting."""
+        for attempt in range(max_retries):
+            try:
+                # Add delay to prevent rate limiting
+                current_time = time.time()
+                time_since_last_request = current_time - self.last_request_time
+                if time_since_last_request < self.request_delay:
+                    sleep_time = self.request_delay - time_since_last_request + random.uniform(0, 0.5)
+                    logger.debug(f"Rate limiting delay: {sleep_time:.2f}s")
+                    time.sleep(sleep_time)
+                
+                self.last_request_time = time.time()
+                
+                # Fetch financial data
+                ticker = yf.Ticker(symbol)
+                info = ticker.info
+                
+                if not info or len(info) < 5:  # Basic check for valid data
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(f"No financial data for {symbol}, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"No financial data available for {symbol} after {max_retries} attempts")
+                        return None
+                
+                return info
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                if 'rate limited' in error_msg or 'too many requests' in error_msg:
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) + random.uniform(1, 3)
+                        logger.warning(f"Rate limited for {symbol}, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"Rate limited for {symbol} after {max_retries} attempts")
+                        return None
+                elif 'delisted' in error_msg or 'no price data' in error_msg:
+                    logger.warning(f"Stock {symbol} appears to be delisted or has no financial data")
+                    return None
+                else:
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(f"Error fetching financial data for {symbol}: {str(e)}, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"Error fetching financial data for {symbol} after {max_retries} attempts: {str(e)}")
+                        return None
+        
+        return None
+    
+    def is_stock_valid(self, symbol: str) -> bool:
+        """Check if a stock is valid and has data available with multiple validation checks."""
+        try:
+            # Multiple validation checks to prevent false positives
+            ticker = yf.Ticker(symbol)
+            
+            # Check 1: Try to get basic info first
+            try:
+                info = ticker.info
+                if info and len(info) > 5:
+                    # If we have basic info, the stock likely exists
+                    logger.debug(f"Stock {symbol} has basic info available")
+            except Exception as e:
+                logger.debug(f"Could not get basic info for {symbol}: {str(e)}")
+            
+            # Check 2: Try different time periods for price data
+            periods_to_try = ['1d', '5d', '1mo', '3mo']
+            hist = None
+            
+            for period in periods_to_try:
+                try:
+                    hist = ticker.history(period=period)
+                    if not hist.empty and len(hist) > 0:
+                        logger.debug(f"Stock {symbol} has price data for period {period}")
+                        break
+                except Exception as e:
+                    logger.debug(f"Could not get {period} data for {symbol}: {str(e)}")
+                    continue
+            
+            # Check 3: If no price data, try to get current price
+            if hist is None or hist.empty:
+                try:
+                    # Try to get current price
+                    current_price = ticker.history(period='1d', interval='1m')
+                    if not current_price.empty:
+                        logger.debug(f"Stock {symbol} has current price data")
+                        return True
+                except Exception as e:
+                    logger.debug(f"Could not get current price for {symbol}: {str(e)}")
+            
+            # Check 4: Validate the data we got
+            if hist is not None and not hist.empty:
+                # Check if we have recent data (within last 30 days)
+                latest_date = hist.index[-1]
+                # Handle timezone-aware vs timezone-naive datetime comparison
+                now = pd.Timestamp.now()
+                if latest_date.tz is not None and now.tz is None:
+                    now = now.tz_localize('UTC')
+                elif latest_date.tz is None and now.tz is not None:
+                    latest_date = latest_date.tz_localize('UTC')
+                days_old = (now - latest_date).days
+                
+                if days_old > 30:
+                    logger.warning(f"Stock {symbol} data is {days_old} days old, might be delisted")
+                    return False
+                
+                # Check if price data looks reasonable
+                if 'Close' in hist.columns:
+                    latest_price = hist['Close'].iloc[-1]
+                    if latest_price <= 0 or pd.isna(latest_price):
+                        logger.warning(f"Stock {symbol} has invalid price data")
+                        return False
+                
+                logger.debug(f"Stock {symbol} validation passed")
+                return True
+            
+            # Check 5: If all else fails, try a different approach
+            try:
+                # Try to get just the ticker info without price data
+                ticker_info = ticker.info
+                if ticker_info and 'symbol' in ticker_info:
+                    logger.debug(f"Stock {symbol} exists but has no recent price data")
+                    return True
+            except Exception as e:
+                logger.debug(f"Final check failed for {symbol}: {str(e)}")
+            
+            # Only mark as invalid if we've exhausted all checks
+            logger.warning(f"Stock {symbol} failed all validation checks")
+            return False
+            
+        except Exception as e:
+            error_msg = str(e).lower()
+            
+            # Be more specific about what constitutes a delisted stock
+            delisted_indicators = [
+                'delisted',
+                'no longer trading',
+                'suspended',
+                'bankruptcy',
+                'ceased trading'
+            ]
+            
+            if any(indicator in error_msg for indicator in delisted_indicators):
+                logger.warning(f"Stock {symbol} appears to be delisted: {str(e)}")
+                return False
+            else:
+                # For other errors, don't assume delisted - might be temporary
+                logger.warning(f"Error validating stock {symbol}: {str(e)} - treating as valid")
+                return True  # Give benefit of doubt
     
     def get_financial_data(self, symbol: str) -> Optional[Dict]:
         """Get financial data for a stock."""
         try:
+            # Get company info with retry logic
+            info = self._fetch_financial_data_with_retry(symbol)
+            
+            if not info:
+                logger.warning(f"No financial data available for {symbol}")
+                return None
+            
+            # Get financial statements (with additional delay)
+            time.sleep(0.5)  # Additional delay for financial statements
             ticker = yf.Ticker(symbol)
-            
-            # Get company info
-            info = ticker.info
-            
-            # Get financial statements
             financials = ticker.financials
             balance_sheet = ticker.balance_sheet
             cashflow = ticker.cashflow
             
-            if financials.empty and balance_sheet.empty:
+            # Check if we have any financial data
+            has_financial_data = not financials.empty or not balance_sheet.empty
+            
+            # If no financial statements but we have basic info, still proceed
+            if not has_financial_data and not info:
+                logger.warning(f"No financial data available for {symbol}")
                 return None
             
             # Extract key financial metrics
@@ -40,52 +210,52 @@ class FundamentalAnalyzer:
                 'company_name': info.get('longName', 'Unknown'),
                 'sector': info.get('sector', 'Unknown'),
                 'industry': info.get('industry', 'Unknown'),
-                'market_cap': info.get('marketCap', 0),
-                'enterprise_value': info.get('enterpriseValue', 0),
-                'pe_ratio': info.get('trailingPE', 0),
-                'forward_pe': info.get('forwardPE', 0),
-                'peg_ratio': info.get('pegRatio', 0),
-                'pb_ratio': info.get('priceToBook', 0),
-                'ps_ratio': info.get('priceToSalesTrailing12Months', 0),
-                'dividend_yield': info.get('dividendYield', 0),
-                'dividend_rate': info.get('dividendRate', 0),
-                'payout_ratio': info.get('payoutRatio', 0),
-                'beta': info.get('beta', 1.0),
-                '52_week_high': info.get('fiftyTwoWeekHigh', 0),
-                '52_week_low': info.get('fiftyTwoWeekLow', 0),
-                'current_price': info.get('currentPrice', 0),
-                'target_price': info.get('targetMeanPrice', 0),
-                'recommendation': info.get('recommendationKey', 'hold'),
-                'analyst_count': info.get('numberOfAnalystOpinions', 0),
-                'revenue_growth': info.get('revenueGrowth', 0),
-                'earnings_growth': info.get('earningsGrowth', 0),
-                'profit_margins': info.get('profitMargins', 0),
-                'operating_margins': info.get('operatingMargins', 0),
-                'gross_margins': info.get('grossMargins', 0),
-                'return_on_equity': info.get('returnOnEquity', 0),
-                'return_on_assets': info.get('returnOnAssets', 0),
-                'debt_to_equity': info.get('debtToEquity', 0),
-                'current_ratio': info.get('currentRatio', 0),
-                'quick_ratio': info.get('quickRatio', 0),
-                'cash_per_share': info.get('totalCashPerShare', 0),
-                'book_value': info.get('bookValue', 0),
-                'price_to_book': info.get('priceToBook', 0),
-                'enterprise_to_revenue': info.get('enterpriseToRevenue', 0),
-                'enterprise_to_ebitda': info.get('enterpriseToEbitda', 0),
-                'earnings_quarterly_growth': info.get('earningsQuarterlyGrowth', 0),
-                'revenue_quarterly_growth': info.get('revenueQuarterlyGrowth', 0),
-                'held_percent_insiders': info.get('heldPercentInsiders', 0),
-                'held_percent_institutions': info.get('heldPercentInstitutions', 0),
-                'float_shares': info.get('floatShares', 0),
-                'shares_outstanding': info.get('sharesOutstanding', 0),
-                'shares_short': info.get('sharesShort', 0),
-                'short_ratio': info.get('shortRatio', 0),
-                'short_percent_of_float': info.get('shortPercentOfFloat', 0),
-                'implied_shares_outstanding': info.get('impliedSharesOutstanding', 0),
+                'market_cap': self._get_market_cap(info),
+                'enterprise_value': info.get('enterpriseValue'),
+                'pe_ratio': self._get_pe_ratio(info),
+                'forward_pe': info.get('forwardPE'),
+                'peg_ratio': info.get('pegRatio'),
+                'pb_ratio': info.get('priceToBook'),
+                'ps_ratio': info.get('priceToSalesTrailing12Months'),
+                'dividend_yield': info.get('dividendYield'),
+                'dividend_rate': info.get('dividendRate'),
+                'payout_ratio': info.get('payoutRatio'),
+                'beta': info.get('beta'),
+                '52_week_high': info.get('fiftyTwoWeekHigh'),
+                '52_week_low': info.get('fiftyTwoWeekLow'),
+                'current_price': info.get('currentPrice'),
+                'target_price': info.get('targetMeanPrice'),
+                'recommendation': info.get('recommendationKey'),
+                'analyst_count': info.get('numberOfAnalystOpinions'),
+                'revenue_growth': info.get('revenueGrowth'),
+                'earnings_growth': info.get('earningsGrowth'),
+                'profit_margins': info.get('profitMargins'),
+                'operating_margins': info.get('operatingMargins'),
+                'gross_margins': info.get('grossMargins'),
+                'return_on_equity': info.get('returnOnEquity'),
+                'return_on_assets': info.get('returnOnAssets'),
+                'debt_to_equity': info.get('debtToEquity'),
+                'current_ratio': info.get('currentRatio'),
+                'quick_ratio': info.get('quickRatio'),
+                'cash_per_share': info.get('totalCashPerShare'),
+                'book_value': info.get('bookValue'),
+                'price_to_book': info.get('priceToBook'),
+                'enterprise_to_revenue': info.get('enterpriseToRevenue'),
+                'enterprise_to_ebitda': info.get('enterpriseToEbitda'),
+                'earnings_quarterly_growth': info.get('earningsQuarterlyGrowth'),
+                'revenue_quarterly_growth': info.get('revenueQuarterlyGrowth'),
+                'held_percent_insiders': info.get('heldPercentInsiders'),
+                'held_percent_institutions': info.get('heldPercentInstitutions'),
+                'float_shares': info.get('floatShares'),
+                'shares_outstanding': info.get('sharesOutstanding'),
+                'shares_short': info.get('sharesShort'),
+                'short_ratio': info.get('shortRatio'),
+                'short_percent_of_float': info.get('shortPercentOfFloat'),
+                'implied_shares_outstanding': info.get('impliedSharesOutstanding'),
                 'last_split_date': info.get('lastSplitDate', None),
                 'last_split_factor': info.get('lastSplitFactor', None),
                 'last_dividend_date': info.get('lastDividendDate', None),
-                'last_dividend_value': info.get('lastDividendValue', 0),
+                'last_dividend_value': info.get('lastDividendValue'),
                 'ex_dividend_date': info.get('exDividendDate', None),
                 'next_dividend_date': info.get('nextDividendDate', None),
                 'next_earnings_date': info.get('nextEarningsDate', None),
@@ -168,6 +338,84 @@ class FundamentalAnalyzer:
             
         except Exception as e:
             logger.error(f"Error getting financial data for {symbol}: {str(e)}")
+            return None
+    
+    def _get_market_cap(self, info: Dict) -> Optional[float]:
+        """Get market cap with fallback calculation. Returns None if data not available."""
+        try:
+            # Try different field names for market cap
+            market_cap = info.get('marketCap')
+            if market_cap is not None and market_cap > 0:
+                return market_cap
+            
+            # Try alternative field names
+            market_cap = info.get('market_cap')
+            if market_cap is not None and market_cap > 0:
+                return market_cap
+            
+            # Try to calculate from shares outstanding and current price
+            shares_outstanding = info.get('sharesOutstanding')
+            current_price = info.get('currentPrice')
+            
+            if shares_outstanding is not None and current_price is not None and shares_outstanding > 0 and current_price > 0:
+                calculated_market_cap = shares_outstanding * current_price
+                logger.info(f"Calculated market cap: {calculated_market_cap:,.0f} (shares: {shares_outstanding:,.0f} * price: {current_price:.2f})")
+                return calculated_market_cap
+            
+            # Try to calculate from float shares and current price
+            float_shares = info.get('floatShares')
+            if float_shares is not None and current_price is not None and float_shares > 0 and current_price > 0:
+                calculated_market_cap = float_shares * current_price
+                logger.info(f"Calculated market cap from float shares: {calculated_market_cap:,.0f}")
+                return calculated_market_cap
+            
+            # If all else fails, return None to indicate missing data
+            logger.debug("Could not determine market cap from available data")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error calculating market cap: {str(e)}")
+            return None
+    
+    def _get_pe_ratio(self, info: Dict) -> Optional[float]:
+        """Get P/E ratio with fallback calculation. Returns None if data not available."""
+        try:
+            # Try different field names for P/E ratio
+            pe_ratio = info.get('trailingPE')
+            if pe_ratio is not None and pe_ratio > 0:
+                return pe_ratio
+            
+            # Try alternative field names
+            pe_ratio = info.get('forwardPE')
+            if pe_ratio is not None and pe_ratio > 0:
+                return pe_ratio
+            
+            pe_ratio = info.get('pe_ratio')
+            if pe_ratio is not None and pe_ratio > 0:
+                return pe_ratio
+            
+            # Try to calculate from current price and earnings per share
+            current_price = info.get('currentPrice')
+            eps = info.get('trailingEps')
+            
+            if current_price is not None and eps is not None and current_price > 0 and eps > 0:
+                calculated_pe = current_price / eps
+                logger.info(f"Calculated P/E ratio: {calculated_pe:.2f} (price: {current_price:.2f} / eps: {eps:.2f})")
+                return calculated_pe
+            
+            # Try alternative EPS field
+            eps = info.get('forwardEps')
+            if current_price is not None and eps is not None and current_price > 0 and eps > 0:
+                calculated_pe = current_price / eps
+                logger.info(f"Calculated P/E ratio from forward EPS: {calculated_pe:.2f}")
+                return calculated_pe
+            
+            # If all else fails, return None to indicate missing data
+            logger.debug("Could not determine P/E ratio from available data")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error calculating P/E ratio: {str(e)}")
             return None
     
     def calculate_fundamental_score(self, financial_data: Dict) -> Dict:

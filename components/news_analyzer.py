@@ -28,6 +28,16 @@ class NewsAnalyzer:
             'https://in.investing.com/rss/news_477.rss',     # Indian IPO News
             'https://in.investing.com/rss/news_14.rss'       # Indian Market Analysis
         ]
+        
+        # Initialize equity loader for stock symbol validation
+        try:
+            from .equity_loader import EquityLoader
+            self.equity_loader = EquityLoader()
+            logger.info("Equity loader initialized successfully")
+        except Exception as e:
+            logger.warning(f"Could not initialize equity loader: {str(e)}")
+            self.equity_loader = None
+        
         logger.info("News Analyzer initialized with Indian stock market RSS feeds only")
     
     def fetch_news(self) -> List[Dict]:

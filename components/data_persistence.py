@@ -73,11 +73,21 @@ class SwingStrategyData:
 class DataPersistenceManager:
     """Manages data persistence for recommendations, watchlist, and swing strategies."""
     
-    def __init__(self, data_dir: str = "saved_data"):
+    def __init__(self, data_dir: str = "saved_data", username: str = None):
         self.data_dir = data_dir
-        self.recommendations_file = os.path.join(data_dir, "recommendations.json")
-        self.watchlist_file = os.path.join(data_dir, "watchlist.json")
-        self.swing_strategies_file = os.path.join(data_dir, "swing_strategies.json")
+        self.username = username
+        
+        # Create user-specific file paths
+        if username:
+            user_dir = os.path.join(data_dir, f"user_{username}")
+            os.makedirs(user_dir, exist_ok=True)
+            self.recommendations_file = os.path.join(user_dir, "recommendations.json")
+            self.watchlist_file = os.path.join(user_dir, "watchlist.json")
+            self.swing_strategies_file = os.path.join(user_dir, "swing_strategies.json")
+        else:
+            self.recommendations_file = os.path.join(data_dir, "recommendations.json")
+            self.watchlist_file = os.path.join(data_dir, "watchlist.json")
+            self.swing_strategies_file = os.path.join(data_dir, "swing_strategies.json")
         
         # Create data directory if it doesn't exist
         os.makedirs(data_dir, exist_ok=True)
@@ -537,3 +547,88 @@ class DataPersistenceManager:
         except Exception as e:
             logger.error(f"Error importing data: {str(e)}")
             return False
+    
+    def clear_saved_data(self, data_type: str = 'safe') -> Dict:
+        """Clear saved data files. Default 'safe' mode preserves recommendations and watchlist."""
+        try:
+            cleared_items = []
+            
+            # Default 'safe' mode only clears old/expired data, preserves recommendations and watchlist
+            if data_type == 'safe':
+                # Only clear expired recommendations (older than 7 days)
+                self._cleanup_expired_data()
+                cleared_items.append("expired recommendations")
+                logger.info("Cleared expired recommendations only")
+                return {
+                    'success': True,
+                    'cleared_items': cleared_items,
+                    'message': f"Successfully cleared: {', '.join(cleared_items)}"
+                }
+            
+            # Explicit clearing options
+            if data_type in ['all', 'recommendations']:
+                self.recommendations = {}
+                self._save_recommendations()
+                cleared_items.append("recommendations")
+                logger.info("Cleared saved recommendations")
+            
+            if data_type in ['all', 'watchlist']:
+                self.watchlist = []
+                self._save_watchlist()
+                cleared_items.append("watchlist")
+                logger.info("Cleared saved watchlist")
+            
+            if data_type in ['all', 'swing_strategies']:
+                self.swing_strategies = {}
+                self._save_swing_strategies()
+                cleared_items.append("swing_strategies")
+                logger.info("Cleared saved swing strategies")
+            
+            # Clear any additional data files
+            if data_type == 'all':
+                self._clear_additional_data_files()
+                cleared_items.append("additional files")
+            
+            return {
+                'success': True,
+                'cleared_items': cleared_items,
+                'message': f"Successfully cleared saved data: {', '.join(cleared_items)}"
+            }
+                
+        except Exception as e:
+            logger.error(f"Error clearing saved data: {str(e)}")
+            return {
+                'success': False,
+                'message': f"Error clearing saved data: {str(e)}"
+            }
+    
+    def _clear_additional_data_files(self):
+        """Clear additional data files that might exist."""
+        try:
+            import os
+            import glob
+            
+            # Clear any JSON files in data directory
+            data_dir = "data"
+            if os.path.exists(data_dir):
+                json_files = glob.glob(os.path.join(data_dir, "*.json"))
+                for json_file in json_files:
+                    # Don't delete API key files
+                    if not json_file.endswith(('_api_key.txt', 'portfolio.json')):
+                        try:
+                            os.remove(json_file)
+                            logger.info(f"Removed data file: {json_file}")
+                        except Exception as e:
+                            logger.warning(f"Could not remove {json_file}: {str(e)}")
+            
+            # Clear any backup files
+            backup_files = glob.glob("*.backup")
+            for backup_file in backup_files:
+                try:
+                    os.remove(backup_file)
+                    logger.info(f"Removed backup file: {backup_file}")
+                except Exception as e:
+                    logger.warning(f"Could not remove {backup_file}: {str(e)}")
+                    
+        except Exception as e:
+            logger.error(f"Error clearing additional data files: {str(e)}")

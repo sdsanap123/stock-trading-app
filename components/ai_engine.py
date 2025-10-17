@@ -1,29 +1,21 @@
 #!/usr/bin/env python3
 """
 AI Recommendation Engine Component
-AI-powered recommendation engine with learning capabilities.
+AI-powered recommendation engine with contrarian analysis capabilities.
 """
 
 import logging
 from typing import Dict, List, Optional
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 class AIRecommendationEngine:
-    """AI-powered recommendation engine with learning capabilities."""
+    """AI-powered recommendation engine with contrarian analysis capabilities."""
     
     def __init__(self):
         self.learning_data = []
         self.performance_history = []
         self.recommendation_tracker = None
-        self.ai_weights = {
-            'technical': 0.3,
-            'fundamental': 0.25,
-            'sentiment': 0.2,
-            'catalysts': 0.15,
-            'market_conditions': 0.1
-        }
         
         # Initialize fundamental analyzer
         try:
@@ -38,7 +30,7 @@ class AIRecommendationEngine:
             self.fundamental_analyzer = None
         
         self.fundamental_ratings = {}
-        logger.info("AI Recommendation Engine initialized with learning capabilities")
+        logger.info("AI Recommendation Engine initialized with contrarian analysis capabilities")
     
     def set_fundamental_analyzer(self, fundamental_analyzer):
         """Set the fundamental analyzer instance."""
@@ -51,445 +43,321 @@ class AIRecommendationEngine:
     def generate_ai_recommendation(self, stock_data: Dict, technical_analysis: Dict, 
                                  news_sentiment: float, catalysts: List[str], groq_analysis: Dict = None, 
                                  gemini_analysis: Dict = None) -> Dict:
-        """Generate AI-powered recommendation with comprehensive analysis."""
+        """Generate AI-powered recommendation with new criteria: negative sentiment + bearish technical indicators."""
         try:
-            # AI scoring based on multiple factors
-            ai_score = 0
+            # New criteria: Recommend stocks with negative sentiment and bearish technical indicators
+            # This is for contrarian/oversold opportunities
             
-            # Technical analysis weight (30%) - Now using comprehensive indicators
-            technical_score = 0
+            # Check if all required data is available
+            if not self._validate_required_data(technical_analysis, groq_analysis, news_sentiment, stock_data):
+                return {
+                    'action': 'SKIP',
+                    'confidence': 0,
+                    'reasoning': 'Missing required data (news, technical, or fundamental analysis)',
+                    'target_price': 0,
+                    'stop_loss': 0,
+                    'technical_data': technical_analysis,
+                    'fundamental_data': stock_data,
+                    'groq_analysis': groq_analysis,
+                    'gemini_analysis': gemini_analysis
+                }
             
-            # Momentum Indicators (40% of technical weight)
-            momentum_score = 0
-            if technical_analysis.get('rsi', 0) != 0:
-                rsi = technical_analysis.get('rsi', 50)
-                if rsi < 30:  # Oversold - bullish
-                    momentum_score += 0.8
-                elif rsi < 40:  # Approaching oversold
-                    momentum_score += 0.6
-                elif rsi > 70:  # Overbought - bearish
-                    momentum_score += 0.2
-                elif rsi > 60:  # Approaching overbought
-                    momentum_score += 0.4
-                else:  # Neutral
-                    momentum_score += 0.5
+            # Check negative sentiment requirement
+            sentiment_negative = self._check_negative_sentiment(news_sentiment, groq_analysis)
+            if not sentiment_negative:
+                return {
+                    'action': 'SKIP',
+                    'confidence': 0,
+                    'reasoning': 'Sentiment not negative enough for contrarian opportunity',
+                    'target_price': 0,
+                    'stop_loss': 0,
+                    'technical_data': technical_analysis,
+                    'fundamental_data': stock_data,
+                    'groq_analysis': groq_analysis,
+                    'gemini_analysis': gemini_analysis
+                }
             
-            if technical_analysis.get('stochastic_k', 0) != 0:
-                stoch_k = technical_analysis.get('stochastic_k', 50)
-                if stoch_k < 20:  # Oversold
-                    momentum_score += 0.3
-                elif stoch_k > 80:  # Overbought
-                    momentum_score += 0.1
-                else:
-                    momentum_score += 0.2
+            # Check bearish technical indicators (3-4 out of 4 should be bearish, 1 neutral)
+            technical_bearish_count, technical_neutral_count = self._count_bearish_indicators(technical_analysis)
             
-            if technical_analysis.get('williams_r', 0) != 0:
-                williams_r = technical_analysis.get('williams_r', -50)
-                if williams_r < -80:  # Oversold
-                    momentum_score += 0.3
-                elif williams_r > -20:  # Overbought
-                    momentum_score += 0.1
-                else:
-                    momentum_score += 0.2
+            if technical_bearish_count < 3 or (technical_bearish_count + technical_neutral_count) < 4:
+                return {
+                    'action': 'SKIP',
+                    'confidence': 0,
+                    'reasoning': f'Insufficient bearish technical indicators ({technical_bearish_count} bearish, {technical_neutral_count} neutral)',
+                    'target_price': 0,
+                    'stop_loss': 0,
+                    'technical_data': technical_analysis,
+                    'fundamental_data': stock_data,
+                    'groq_analysis': groq_analysis,
+                    'gemini_analysis': gemini_analysis
+                }
             
-            momentum_score = min(momentum_score, 1.0)
-            technical_score += momentum_score * 0.4
+            # Calculate AI score based on new criteria
+            ai_score = self._calculate_contrarian_score(technical_analysis, groq_analysis, news_sentiment)
             
-            # Trend Indicators (35% of technical weight)
-            trend_score = 0
-            current_price = technical_analysis.get('current_price', 0)
-            
-            # Moving Average Analysis
-            sma_10 = technical_analysis.get('sma_10', current_price)
-            sma_20 = technical_analysis.get('sma_20', current_price)
-            sma_50 = technical_analysis.get('sma_50', current_price)
-            
-            if current_price > sma_10 > sma_20 > sma_50:  # Strong uptrend
-                trend_score += 0.8
-            elif current_price > sma_10 > sma_20:  # Medium uptrend
-                trend_score += 0.6
-            elif current_price > sma_20:  # Weak uptrend
-                trend_score += 0.4
-            elif current_price < sma_10 < sma_20 < sma_50:  # Strong downtrend
-                trend_score += 0.2
-            elif current_price < sma_10 < sma_20:  # Medium downtrend
-                trend_score += 0.3
-            elif current_price < sma_20:  # Weak downtrend
-                trend_score += 0.35
-            else:  # Sideways
-                trend_score += 0.5
-            
-            # MACD Analysis
-            macd = technical_analysis.get('macd', 0)
-            if macd > 0:  # Bullish MACD
-                trend_score += 0.2
-            else:  # Bearish MACD
-                trend_score += 0.1
-            
-            trend_score = min(trend_score, 1.0)
-            technical_score += trend_score * 0.35
-            
-            # Volatility Indicators (25% of technical weight)
-            volatility_score = 0
-            bb_upper = technical_analysis.get('bb_upper', current_price)
-            bb_lower = technical_analysis.get('bb_lower', current_price)
-            
-            if bb_upper > bb_lower and current_price > 0:
-                bb_position = (current_price - bb_lower) / (bb_upper - bb_lower)
-                if bb_position < 0.2:  # Near lower band - potential bounce
-                    volatility_score += 0.8
-                elif bb_position > 0.8:  # Near upper band - potential pullback
-                    volatility_score += 0.3
-                else:  # Middle range
-                    volatility_score += 0.5
-            
-            # ATR Analysis for volatility
-            atr = technical_analysis.get('atr', 0)
-            if atr > 0 and current_price > 0:
-                atr_ratio = atr / current_price
-                if atr_ratio < 0.02:  # Low volatility - stable
-                    volatility_score += 0.3
-                elif atr_ratio > 0.05:  # High volatility - risky
-                    volatility_score += 0.2
-                else:  # Normal volatility
-                    volatility_score += 0.3
-            
-            volatility_score = min(volatility_score, 1.0)
-            technical_score += volatility_score * 0.25
-            
-            # Ensure technical score is between 0 and 1
-            technical_score = max(0, min(1, technical_score))
-            ai_score += technical_score * self.ai_weights['technical']
-            
-            # Fundamental analysis weight (25%) - Now using REAL fundamental data
-            fundamental_score = 0.5  # Default neutral score
-            
-            # Try to get real fundamental analysis if available
-            if hasattr(self, 'fundamental_analyzer') and self.fundamental_analyzer:
-                try:
-                    # Get fundamental data for the stock
-                    symbol = stock_data.get('symbol', '')
-                    if symbol:
-                        # Add .NS suffix for NSE stocks if not present
-                        if not symbol.endswith('.NS') and not symbol.endswith('.BO'):
-                            symbol_with_suffix = f"{symbol}.NS"
-                        else:
-                            symbol_with_suffix = symbol
-                        
-                        # Fetch and analyze fundamental data
-                        financial_data = self.fundamental_analyzer.get_financial_data(symbol_with_suffix)
-                        if financial_data:
-                            fundamental_analysis = self.fundamental_analyzer.calculate_fundamental_score(financial_data)
-                            fundamental_score = fundamental_analysis.get('score', 0.5)
-                            
-                            # Add fundamental ratings to reasoning
-                            ratings = fundamental_analysis.get('ratings', {})
-                            if ratings:
-                                self.fundamental_ratings = ratings
-                        else:
-                            logger.warning(f"No fundamental data available for {symbol_with_suffix}")
-                            fundamental_score = 0.0  # No fallback - set to 0 when no data
-                except Exception as e:
-                    logger.warning(f"Could not perform fundamental analysis: {str(e)}")
-                    fundamental_score = 0.0  # No fallback - set to 0 when error occurs
-            else:
-                logger.warning("Fundamental analyzer not available - using neutral score")
-                fundamental_score = 0.5  # Use neutral score when analyzer not available
-            
-            # Ensure fundamental score is between 0 and 1
-            fundamental_score = max(0, min(1, fundamental_score))
-            ai_score += fundamental_score * self.ai_weights['fundamental']
-            
-            # Sentiment weight (20%) - Enhanced with Groq AI
-            if groq_analysis and groq_analysis.get('source') == 'Groq API':
-                # Use Groq AI analysis if available
-                groq_sentiment = groq_analysis.get('sentiment_score', 0)
-                groq_confidence = groq_analysis.get('confidence', 50) / 100
-                
-                # Weight Groq AI sentiment by its confidence
-                sentiment_score = 0.5 + (groq_sentiment * groq_confidence * 0.5)
-                sentiment_score = max(0, min(1, sentiment_score))
-                
-                # Store Groq AI insights for reasoning
-                self.groq_insights = groq_analysis.get('key_insights', [])
-                self.groq_source = groq_analysis.get('source', 'Groq API')
-            else:
-                # Groq AI service unavailable - use traditional sentiment analysis
-                sentiment_score = (news_sentiment + 1) / 2  # Convert -1 to 1 range to 0 to 1
-                self.groq_insights = []
-                self.groq_source = 'Groq API Unavailable'
-            
-            ai_score += sentiment_score * self.ai_weights['sentiment']
-            
-            # Catalyst weight (15%)
-            catalyst_score = min(len(catalysts) / 3, 1.0)  # Max 3 catalysts
-            ai_score += catalyst_score * self.ai_weights['catalysts']
-            
-            # Market conditions (10%) - Enhanced with trend analysis
-            market_score = 0.5  # Base neutral score
-            
-            # Add trend-based market score
-            trend_short = technical_analysis.get('trend_short', 0)
-            trend_medium = technical_analysis.get('trend_medium', 0)
-            
-            if trend_short > 0 and trend_medium > 0:  # Both trends bullish
-                market_score += 0.3
-            elif trend_short > 0 or trend_medium > 0:  # One trend bullish
-                market_score += 0.15
-            elif trend_short < 0 and trend_medium < 0:  # Both trends bearish
-                market_score -= 0.3
-            elif trend_short < 0 or trend_medium < 0:  # One trend bearish
-                market_score -= 0.15
-            
-            market_score = max(0, min(1, market_score))
-            ai_score += market_score * self.ai_weights['market_conditions']
-            
-            # Gemini AI analysis weight (20%) - if available
-            if gemini_analysis and gemini_analysis.get('status') == 'success':
-                gemini_score = gemini_analysis.get('analysis', {}).get('overall_score', 0.5)
-                gemini_confidence = gemini_analysis.get('analysis', {}).get('confidence', 0.5)
-                
-                # Weight Gemini AI score by its confidence
-                weighted_gemini_score = 0.5 + (gemini_score - 0.5) * gemini_confidence
-                weighted_gemini_score = max(0, min(1, weighted_gemini_score))
-                
-                # Add Gemini AI score to overall AI score
-                ai_score += weighted_gemini_score * 0.2
-                
-                # Store Gemini insights for reasoning
-                self.gemini_insights = gemini_analysis.get('analysis', {}).get('key_insights', [])
-                self.gemini_recommendation = gemini_analysis.get('analysis', {}).get('recommendation', 'HOLD')
-            else:
-                self.gemini_insights = []
-                self.gemini_recommendation = 'HOLD'
-            
-            # Ensure AI score is between 0 and 1
-            ai_score = max(0, min(1, ai_score))
-            
-            # Determine recommendation based on AI score - More lenient for BUY recommendations
-            # Modified to show only BUY recommendations with more lenient criteria
-            if ai_score >= 0.35:  # Lowered threshold from 0.7 to 0.35 for more BUY recommendations
+            # Determine recommendation based on contrarian score
+            if ai_score >= 0.6:  # High contrarian opportunity
                 action = 'BUY'
                 confidence = min(95, ai_score * 100)
+            elif ai_score >= 0.4:  # Medium contrarian opportunity
+                action = 'BUY'
+                confidence = min(85, ai_score * 100)
             else:
-                # Skip stocks that don't meet BUY criteria - don't show HOLD or SELL
                 action = 'SKIP'
                 confidence = 0
             
-            # Calculate target price and stop loss for BUY recommendations only
+            # Calculate target price and stop loss for BUY recommendations
             current_price = technical_analysis.get('current_price', 0)
             if current_price > 0 and action == 'BUY':
-                # 7-day swing strategy: More aggressive targets for short-term gains
-                target_price = current_price * (1 + (ai_score - 0.35) * 0.3)  # 0-30% upside based on score
-                stop_loss = current_price * (1 - 0.08)  # 8% stop loss for swing trading
+                # Contrarian strategy: Higher upside potential for oversold stocks
+                target_price = current_price * (1 + (ai_score * 0.4))  # Up to 40% upside
+                stop_loss = current_price * (1 - 0.12)  # 12% stop loss for contrarian plays
             else:
                 target_price = 0
                 stop_loss = 0
             
-            # Generate comprehensive reasoning
-            reasoning = self._generate_reasoning(
-                technical_score, fundamental_score, sentiment_score, 
-                catalyst_score, market_score, ai_score, action, confidence,
-                technical_analysis, groq_analysis, gemini_analysis
+            # Generate reasoning for contrarian recommendation
+            reasoning = self._generate_contrarian_reasoning(
+                technical_analysis, groq_analysis, news_sentiment, 
+                technical_bearish_count, technical_neutral_count, ai_score, action, confidence
             )
             
             # Create recommendation result
             recommendation = {
                 'action': action,
                 'confidence': confidence,
-                'target_price': target_price,
-                'stop_loss': stop_loss,
                 'reasoning': reasoning,
-                'ai_score': ai_score,
-                'technical_score': technical_score,
-                'fundamental_score': fundamental_score,
-                'sentiment_score': sentiment_score,
-                'catalyst_score': catalyst_score,
-                'market_score': market_score,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            # Track recommendation for learning
-            if self.recommendation_tracker:
-                try:
-                    tracking_data = {
-                        'symbol': stock_data.get('symbol', ''),
-                        'action': action,
-                        'confidence': confidence,
                         'target_price': target_price,
                         'stop_loss': stop_loss,
-                        'ai_score': ai_score,
                         'technical_data': technical_analysis,
-                        'fundamental_data': self.fundamental_ratings,
+                'fundamental_data': stock_data,
                         'groq_analysis': groq_analysis,
                         'gemini_analysis': gemini_analysis,
-                        'created_at': datetime.now().isoformat()
+                'contrarian_score': ai_score,
+                'bearish_indicators': technical_bearish_count,
+                'neutral_indicators': technical_neutral_count
                     }
-                    self.recommendation_tracker.track_recommendation(tracking_data)
-                except Exception as e:
-                    logger.warning(f"Could not track recommendation: {str(e)}")
             
-            logger.info(f"Generated {action} recommendation for {stock_data.get('symbol', 'N/A')} with {confidence:.1f}% confidence")
             return recommendation
             
         except Exception as e:
             logger.error(f"Error generating AI recommendation: {str(e)}")
             return {
-                'action': 'HOLD',
+                'action': 'SKIP',
                 'confidence': 0,
+                'reasoning': f'Error in analysis: {str(e)}',
                 'target_price': 0,
                 'stop_loss': 0,
-                'reasoning': f"Error in analysis: {str(e)}",
-                'ai_score': 0,
-                'timestamp': datetime.now().isoformat()
+                'technical_data': technical_analysis,
+                'fundamental_data': stock_data,
+                'groq_analysis': groq_analysis,
+                'gemini_analysis': gemini_analysis
             }
     
-    def _generate_reasoning(self, technical_score: float, fundamental_score: float, 
-                          sentiment_score: float, catalyst_score: float, market_score: float,
-                          ai_score: float, action: str, confidence: float,
-                          technical_analysis: Dict, groq_analysis: Dict = None, 
-                          gemini_analysis: Dict = None) -> str:
-        """Generate comprehensive reasoning for the recommendation."""
+    def _validate_required_data(self, technical_analysis: Dict, groq_analysis: Dict, news_sentiment: float, fundamental_data: Dict = None) -> bool:
+        """Validate that all required data is available."""
+        try:
+            # Check technical analysis - must have all key indicators
+            if not technical_analysis:
+                logger.warning("Technical analysis data missing")
+                return False
+            
+            required_technical_fields = ['current_price', 'rsi', 'macd', 'sma_20', 'volume_ratio_20']
+            for field in required_technical_fields:
+                if field not in technical_analysis or technical_analysis[field] is None:
+                    logger.warning(f"Technical analysis missing required field: {field}")
+                    return False
+            
+            # Check news sentiment
+            if news_sentiment is None:
+                logger.warning("News sentiment data missing")
+                return False
+            
+            # Check Groq analysis
+            if not groq_analysis or groq_analysis.get('status') != 'success':
+                logger.warning("Groq analysis data missing or failed")
+                return False
+            
+            # Check fundamental data if provided
+            if fundamental_data is not None:
+                # Check if we have at least some fundamental data
+                available_fields = []
+                for field in ['pe_ratio', 'pb_ratio', 'market_cap', 'current_price']:
+                    if field in fundamental_data and fundamental_data[field] is not None:
+                        available_fields.append(field)
+                
+                if not available_fields:
+                    logger.warning("No fundamental data available for analysis")
+                    return False
+                
+                # Log what data we have
+                logger.info(f"Fundamental data available: {available_fields}")
+                
+                # Check for missing critical fields and warn but don't fail
+                missing_critical = []
+                for field in ['pe_ratio', 'pb_ratio']:
+                    if field not in fundamental_data or fundamental_data[field] is None:
+                        missing_critical.append(field)
+                
+                if missing_critical:
+                    logger.warning(f"Missing critical fundamental fields: {missing_critical} - proceeding with available data")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating required data: {str(e)}")
+            return False
+    
+    def _check_negative_sentiment(self, news_sentiment: float, groq_analysis: Dict) -> bool:
+        """Check if sentiment is negative enough for contrarian opportunity."""
+        try:
+            # Check news sentiment (should be negative)
+            if news_sentiment > -0.1:  # Not negative enough
+                return False
+            
+            # Check Groq sentiment
+            if groq_analysis and groq_analysis.get('status') == 'success':
+                groq_sentiment = groq_analysis.get('sentiment_score', 0)
+                if groq_sentiment > -0.2:  # Not negative enough
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error checking negative sentiment: {str(e)}")
+            return False
+    
+    def _count_bearish_indicators(self, technical_analysis: Dict) -> tuple:
+        """Count bearish and neutral technical indicators."""
+        try:
+            bearish_count = 0
+            neutral_count = 0
+            
+            # RSI - bearish if > 70, neutral if 50-70
+            rsi = technical_analysis.get('rsi', 50)
+            if rsi > 70:
+                bearish_count += 1
+            elif 50 <= rsi <= 70:
+                neutral_count += 1
+            
+            # MACD - bearish if negative, neutral if near zero
+            macd = technical_analysis.get('macd', 0)
+            if macd < -0.01:
+                bearish_count += 1
+            elif -0.01 <= macd <= 0.01:
+                neutral_count += 1
+            
+            # Price vs SMA - bearish if below SMA, neutral if near SMA
+            current_price = technical_analysis.get('current_price', 0)
+            sma_20 = technical_analysis.get('sma_20', 0)
+            if current_price > 0 and sma_20 > 0:
+                price_vs_sma = (current_price - sma_20) / sma_20
+                if price_vs_sma < -0.02:  # 2% below SMA
+                    bearish_count += 1
+                elif -0.02 <= price_vs_sma <= 0.02:  # Within 2% of SMA
+                    neutral_count += 1
+            
+            # Volume - bearish if low volume, neutral if average
+            volume_ratio = technical_analysis.get('volume_ratio_20', 1)
+            if volume_ratio < 0.8:  # Low volume
+                bearish_count += 1
+            elif 0.8 <= volume_ratio <= 1.2:  # Average volume
+                neutral_count += 1
+            
+            return bearish_count, neutral_count
+            
+        except Exception as e:
+            logger.error(f"Error counting bearish indicators: {str(e)}")
+            return 0, 0
+    
+    def _calculate_contrarian_score(self, technical_analysis: Dict, groq_analysis: Dict, news_sentiment: float) -> float:
+        """Calculate contrarian opportunity score."""
+        try:
+            score = 0.0
+            
+            # Sentiment component (40% weight) - more negative = higher score
+            sentiment_score = abs(news_sentiment)  # Convert negative to positive
+            if groq_analysis and groq_analysis.get('status') == 'success':
+                groq_sentiment = abs(groq_analysis.get('sentiment_score', 0))
+                sentiment_score = max(sentiment_score, groq_sentiment)
+            score += sentiment_score * 0.4
+            
+            # Technical oversold component (35% weight)
+            technical_score = 0
+            rsi = technical_analysis.get('rsi', 50)
+            if rsi > 70:  # Overbought - good for contrarian
+                technical_score += 0.3
+            elif rsi > 60:
+                technical_score += 0.2
+            
+            # Price below SMA
+            current_price = technical_analysis.get('current_price', 0)
+            sma_20 = technical_analysis.get('sma_20', 0)
+            if current_price > 0 and sma_20 > 0:
+                price_vs_sma = (current_price - sma_20) / sma_20
+                if price_vs_sma < -0.05:  # 5% below SMA
+                    technical_score += 0.3
+                elif price_vs_sma < -0.02:  # 2% below SMA
+                    technical_score += 0.2
+            
+            # Low volume (contrarian signal)
+            volume_ratio = technical_analysis.get('volume_ratio_20', 1)
+            if volume_ratio < 0.7:
+                technical_score += 0.2
+            elif volume_ratio < 0.9:
+                technical_score += 0.1
+            
+            score += min(technical_score, 1.0) * 0.35
+            
+            # Market conditions (25% weight)
+            market_score = 0.5  # Base score
+            # Add volatility component
+            atr = technical_analysis.get('atr', 0)
+            if atr > 0:
+                # Higher volatility = higher contrarian opportunity
+                market_score += 0.3
+            
+            score += market_score * 0.25
+            
+            return min(score, 1.0)
+            
+        except Exception as e:
+            logger.error(f"Error calculating contrarian score: {str(e)}")
+            return 0.0
+    
+    def _generate_contrarian_reasoning(self, technical_analysis: Dict, groq_analysis: Dict, 
+                                     news_sentiment: float, bearish_count: int, neutral_count: int,
+                                     ai_score: float, action: str, confidence: float) -> str:
+        """Generate reasoning for contrarian recommendation."""
         try:
             reasoning_parts = []
             
-            # Overall assessment
-            reasoning_parts.append(f"AI Analysis Score: {ai_score:.2f}/1.0")
-            reasoning_parts.append(f"Recommendation: {action} (Confidence: {confidence:.1f}%)")
-            reasoning_parts.append("")
+            # Sentiment analysis
+            reasoning_parts.append(f"📰 **Negative Sentiment Detected**: News sentiment at {news_sentiment:.3f}")
+            if groq_analysis and groq_analysis.get('status') == 'success':
+                groq_sentiment = groq_analysis.get('sentiment_score', 0)
+                reasoning_parts.append(f"🤖 **AI Analysis**: Groq sentiment at {groq_sentiment:.3f}")
             
-            # Technical Analysis
-            reasoning_parts.append("📈 TECHNICAL ANALYSIS:")
-            reasoning_parts.append(f"• Technical Score: {technical_score:.2f}/1.0")
+            # Technical analysis
+            reasoning_parts.append(f"📊 **Technical Indicators**: {bearish_count} bearish, {neutral_count} neutral out of 4 indicators")
             
-            # RSI Analysis
-            rsi = technical_analysis.get('rsi', 0)
-            if rsi > 0:
-                if rsi < 30:
-                    reasoning_parts.append(f"• RSI: {rsi:.1f} (Oversold - Bullish)")
-                elif rsi > 70:
-                    reasoning_parts.append(f"• RSI: {rsi:.1f} (Overbought - Bearish)")
-                else:
-                    reasoning_parts.append(f"• RSI: {rsi:.1f} (Neutral)")
+            # Specific technical details
+            rsi = technical_analysis.get('rsi', 50)
+            reasoning_parts.append(f"• RSI: {rsi:.1f} ({'Overbought' if rsi > 70 else 'Neutral' if rsi > 50 else 'Oversold'})")
             
-            # Moving Averages
             current_price = technical_analysis.get('current_price', 0)
             sma_20 = technical_analysis.get('sma_20', 0)
-            sma_50 = technical_analysis.get('sma_50', 0)
-            
             if current_price > 0 and sma_20 > 0:
-                if current_price > sma_20:
-                    reasoning_parts.append(f"• Price above SMA 20: Bullish trend")
-                else:
-                    reasoning_parts.append(f"• Price below SMA 20: Bearish trend")
+                price_vs_sma = (current_price - sma_20) / sma_20 * 100
+                reasoning_parts.append(f"• Price vs SMA20: {price_vs_sma:+.1f}%")
             
-            if sma_20 > 0 and sma_50 > 0:
-                if sma_20 > sma_50:
-                    reasoning_parts.append(f"• SMA 20 > SMA 50: Uptrend")
-                else:
-                    reasoning_parts.append(f"• SMA 20 < SMA 50: Downtrend")
+            # Contrarian opportunity
+            reasoning_parts.append(f"🎯 **Contrarian Opportunity**: Score {ai_score:.2f} - Oversold conditions with negative sentiment")
+            reasoning_parts.append(f"💡 **Strategy**: Buy the dip on oversold conditions for potential reversal")
             
-            # MACD
-            macd = technical_analysis.get('macd', 0)
-            if macd > 0:
-                reasoning_parts.append(f"• MACD: {macd:.3f} (Bullish)")
-            else:
-                reasoning_parts.append(f"• MACD: {macd:.3f} (Bearish)")
-            
-            reasoning_parts.append("")
-            
-            # Fundamental Analysis
-            reasoning_parts.append("📊 FUNDAMENTAL ANALYSIS:")
-            reasoning_parts.append(f"• Fundamental Score: {fundamental_score:.2f}/1.0")
-            
-            if self.fundamental_ratings:
-                for metric, rating in self.fundamental_ratings.items():
-                    reasoning_parts.append(f"• {metric}: {rating}")
-            else:
-                reasoning_parts.append("• No fundamental data available")
-            
-            reasoning_parts.append("")
-            
-            # Sentiment Analysis
-            reasoning_parts.append("📰 SENTIMENT ANALYSIS:")
-            reasoning_parts.append(f"• Sentiment Score: {sentiment_score:.2f}/1.0")
-            
-            if groq_analysis and groq_analysis.get('source') == 'Groq API':
-                reasoning_parts.append(f"• Groq AI Analysis: {self.groq_source}")
-                if self.groq_insights:
-                    reasoning_parts.append("• Key Insights:")
-                    for insight in self.groq_insights[:3]:  # Show top 3 insights
-                        reasoning_parts.append(f"  - {insight}")
-            else:
-                reasoning_parts.append("• Groq AI: Unavailable")
-            
-            reasoning_parts.append("")
-            
-            # Gemini AI Analysis
-            if gemini_analysis and gemini_analysis.get('status') == 'success':
-                reasoning_parts.append("🧠 GEMINI AI ANALYSIS:")
-                gemini_analysis_data = gemini_analysis.get('analysis', {})
-                reasoning_parts.append(f"• Gemini Recommendation: {self.gemini_recommendation}")
-                reasoning_parts.append(f"• Overall Score: {gemini_analysis_data.get('overall_score', 0):.2f}")
-                reasoning_parts.append(f"• Confidence: {gemini_analysis_data.get('confidence', 0):.1%}")
-                
-                if self.gemini_insights:
-                    reasoning_parts.append("• Key Insights:")
-                    for insight in self.gemini_insights[:3]:  # Show top 3 insights
-                        reasoning_parts.append(f"  - {insight}")
-                
-                reasoning_parts.append("")
-            
-            # Market Conditions
-            reasoning_parts.append("🌍 MARKET CONDITIONS:")
-            reasoning_parts.append(f"• Market Score: {market_score:.2f}/1.0")
-            reasoning_parts.append(f"• Catalyst Score: {catalyst_score:.2f}/1.0")
-            
-            # Risk Assessment
-            reasoning_parts.append("")
-            reasoning_parts.append("⚠️ RISK ASSESSMENT:")
-            if confidence >= 80:
-                reasoning_parts.append("• High confidence recommendation")
-            elif confidence >= 60:
-                reasoning_parts.append("• Medium confidence recommendation")
-            else:
-                reasoning_parts.append("• Low confidence recommendation")
-            
-            if action == 'BUY':
-                reasoning_parts.append("• 7-Day Swing Strategy: Short-term position with 8% stop loss")
-                reasoning_parts.append("• Consider position sizing based on risk tolerance")
-                reasoning_parts.append("• Monitor daily for exit signals or target achievement")
-                reasoning_parts.append("• Set stop loss to limit downside risk")
-            else:
-                reasoning_parts.append("• Stock does not meet BUY criteria for swing trading")
-                reasoning_parts.append("• Skipped from recommendations")
-            
-            return "\n".join(reasoning_parts)
+            return "\n\n".join(reasoning_parts)
             
         except Exception as e:
-            logger.error(f"Error generating reasoning: {str(e)}")
-            return f"Error generating detailed reasoning: {str(e)}"
-    
-    def update_weights(self, new_weights: Dict):
-        """Update AI weights based on performance."""
-        try:
-            for key, value in new_weights.items():
-                if key in self.ai_weights and 0 <= value <= 1:
-                    self.ai_weights[key] = value
-            
-            logger.info(f"Updated AI weights: {self.ai_weights}")
-            
-        except Exception as e:
-            logger.error(f"Error updating weights: {str(e)}")
-    
-    def get_performance_summary(self) -> Dict:
-        """Get performance summary of recommendations."""
-        try:
-            if not self.recommendation_tracker:
-                return {"error": "Recommendation tracker not available"}
-            
-            return self.recommendation_tracker.get_performance_summary()
-            
-        except Exception as e:
-            logger.error(f"Error getting performance summary: {str(e)}")
-            return {"error": str(e)}
+            logger.error(f"Error generating contrarian reasoning: {str(e)}")
+            return f"Contrarian analysis completed with score {ai_score:.2f}"
