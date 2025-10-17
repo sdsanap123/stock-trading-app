@@ -52,6 +52,7 @@ from components.price_monitor import PriceMonitor
 from components.notification_settings import NotificationSettingsManager, NotificationChannel
 from components.data_persistence import DataPersistenceManager
 from components.expandable_ui import ExpandableUI
+from components.scheduled_analysis import ScheduledAnalysis
 
 # Page configuration
 st.set_page_config(
@@ -135,6 +136,44 @@ st.markdown("""
         border-left: 4px solid #ffd700;
         box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
     }
+    
+    /* Compact UI optimizations */
+    .main-header {
+        font-size: 1.8rem !important;
+        margin-bottom: 1rem !important;
+    }
+    
+    /* Compact tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.3rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 0.2rem 0.6rem;
+        font-size: 0.85rem;
+        min-height: 2rem;
+    }
+    
+    /* Compact sidebar */
+    .css-1d391kg {
+        padding-top: 0.5rem;
+    }
+    
+    /* Compact metrics */
+    .metric-card {
+        padding: 0.5rem !important;
+        margin: 0.2rem 0 !important;
+    }
+    
+    /* Compact expandable content */
+    .expandable-row {
+        margin: 0.1rem 0;
+        padding: 0.2rem;
+    }
+    
+    /* Reduce spacing */
+    .element-container {
+        margin-bottom: 0.5rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -187,6 +226,26 @@ class StreamlitTradingApp:
             st.session_state.notification_settings = NotificationSettingsManager()
         if 'data_persistence' not in st.session_state:
             st.session_state.data_persistence = DataPersistenceManager()
+        if 'scheduled_analysis' not in st.session_state:
+            st.session_state.scheduled_analysis = ScheduledAnalysis(self.analyze_market)
+        
+        # Load saved data into session state if not already loaded
+        if 'watchlist' not in st.session_state or not st.session_state.watchlist:
+            saved_watchlist = st.session_state.data_persistence.get_watchlist()
+            if saved_watchlist:
+                st.session_state.watchlist = saved_watchlist
+                logger.info(f"Loaded {len(saved_watchlist)} items from saved watchlist")
+        
+        # Load latest recommendations if not already loaded
+        if 'recommendations' not in st.session_state or not st.session_state.recommendations:
+            available_dates = st.session_state.data_persistence.get_available_dates()
+            if available_dates:
+                # Load the most recent recommendations
+                latest_date = max(available_dates)
+                latest_recommendations = st.session_state.data_persistence.get_recommendations_by_date(latest_date)
+                if latest_recommendations:
+                    st.session_state.recommendations = latest_recommendations
+                    logger.info(f"Loaded {len(latest_recommendations)} recommendations from {latest_date}")
     
     def initialize_components(self):
         """Initialize all analysis components."""
@@ -217,23 +276,150 @@ class StreamlitTradingApp:
             except:
                 st.session_state.firebase_available = False
             
+            # Initialize API keys in analyzers
+            self._initialize_api_keys()
+            
+            # Start scheduled analysis
+            if hasattr(self, 'scheduled_analysis') and st.session_state.get('scheduled_analysis'):
+                st.session_state.scheduled_analysis.start_scheduler()
+                logger.info("Scheduled analysis started")
+            
             logger.info("All components initialized successfully")
             
         except Exception as e:
             logger.error(f"Error initializing components: {str(e)}")
             st.error(f"Error initializing components: {str(e)}")
     
-    def load_saved_api_key(self, key_type: str) -> str:
-        """Load saved API key from Streamlit secrets or environment variables."""
+    def _initialize_api_keys(self):
+        """Initialize API keys in analyzers from saved settings."""
         try:
-            # Try Streamlit secrets first (for deployment)
+            # Load and set Groq API key
+            groq_key = self.load_saved_api_key('groq')
+            if groq_key:
+                self.groq_analyzer.api_key = groq_key
+                self.groq_analyzer.initialized = True
+                logger.info("Groq API key loaded and initialized")
+            else:
+                self.groq_analyzer.initialized = False
+                logger.warning("Groq API key not found")
+            
+            # Load and set Gemini API key
+            gemini_key = self.load_saved_api_key('gemini')
+            if gemini_key:
+                self.gemini_analyzer.api_key = gemini_key
+                self.gemini_analyzer.initialized = True
+                logger.info("Gemini API key loaded and initialized")
+            else:
+                self.gemini_analyzer.initialized = False
+                logger.warning("Gemini API key not found")
+                
+        except Exception as e:
+            logger.error(f"Error initializing API keys: {str(e)}")
+    
+    def _auto_save_recommendations(self):
+        """Automatically save recommendations."""
+        try:
+            if st.session_state.get('recommendations'):
+                data_persistence = st.session_state.data_persistence
+                data_persistence.save_recommendations(st.session_state.recommendations)
+                logger.info(f"Auto-saved {len(st.session_state.recommendations)} recommendations")
+        except Exception as e:
+            logger.error(f"Error auto-saving recommendations: {str(e)}")
+    
+    def _auto_save_watchlist(self):
+        """Automatically save watchlist."""
+        try:
+            if st.session_state.get('watchlist'):
+                data_persistence = st.session_state.data_persistence
+                data_persistence.save_watchlist(st.session_state.watchlist)
+                logger.info(f"Auto-saved {len(st.session_state.watchlist)} watchlist items")
+        except Exception as e:
+            logger.error(f"Error auto-saving watchlist: {str(e)}")
+    
+    def _auto_save_swing_strategies(self):
+        """Automatically save swing strategies."""
+        try:
+            if st.session_state.get('recommendations'):
+                swing_strategies = []
+                for rec in st.session_state.recommendations:
+                    swing_plan = rec.get('swing_plan', {})
+                    if swing_plan:
+                        swing_strategies.append(swing_plan)
+                
+                if swing_strategies:
+                    data_persistence = st.session_state.data_persistence
+                    data_persistence.save_swing_strategies(swing_strategies)
+                    logger.info(f"Auto-saved {len(swing_strategies)} swing strategies")
+        except Exception as e:
+            logger.error(f"Error auto-saving swing strategies: {str(e)}")
+    
+    def _auto_save_news(self):
+        """Automatically save news articles."""
+        try:
+            if st.session_state.get('news_articles'):
+                data_persistence = st.session_state.data_persistence
+                news_data = []
+                for article in st.session_state.news_articles:
+                    news_data.append({
+                        'symbol': 'NEWS',
+                        'company_name': article.get('title', 'News Article'),
+                        'current_price': 0,
+                        'recommendation': 'INFO',
+                        'confidence': 0,
+                        'target_price': 0,
+                        'stop_loss': 0,
+                        'reasoning': article.get('description', ''),
+                        'technical_data': {},
+                        'fundamental_data': {},
+                        'groq_analysis': {},
+                        'gemini_analysis': {},
+                        'swing_plan': {},
+                        'swing_validation': {},
+                        'news_article': article
+                    })
+                data_persistence.save_recommendations(news_data)
+                logger.info(f"Auto-saved {len(news_data)} news articles")
+        except Exception as e:
+            logger.error(f"Error auto-saving news: {str(e)}")
+    
+    def load_saved_api_key(self, key_type: str) -> str:
+        """Load saved API key from session state, local file, Streamlit secrets, or environment variables."""
+        try:
+            # First check session state (for current session)
+            if key_type == 'groq':
+                session_key = st.session_state.get('saved_groq_key', '')
+                if session_key:
+                    return session_key
+            elif key_type == 'gemini':
+                session_key = st.session_state.get('saved_gemini_key', '')
+                if session_key:
+                    return session_key
+            
+            # Check local file (for persistence across sessions)
+            import os
+            data_dir = "data"
+            key_file = os.path.join(data_dir, f"{key_type}_api_key.txt")
+            if os.path.exists(key_file):
+                try:
+                    with open(key_file, 'r') as f:
+                        file_key = f.read().strip()
+                        if file_key:
+                            # Also update session state for current session
+                            if key_type == 'groq':
+                                st.session_state.saved_groq_key = file_key
+                            elif key_type == 'gemini':
+                                st.session_state.saved_gemini_key = file_key
+                            return file_key
+                except Exception as e:
+                    logger.warning(f"Could not read {key_type} API key from file: {str(e)}")
+            
+            # Try Streamlit secrets (for deployment)
             if key_type == 'groq':
                 return st.secrets.get('GROQ_API_KEY', '')
             elif key_type == 'gemini':
                 return st.secrets.get('GEMINI_API_KEY', '')
             
             # Fallback to environment variables
-            import os
             if key_type == 'groq':
                 return os.getenv('GROQ_API_KEY', '')
             elif key_type == 'gemini':
@@ -244,29 +430,47 @@ class StreamlitTradingApp:
             return ""
     
     def save_api_key(self, key_type: str, api_key: str) -> bool:
-        """Save API key to session state (for local development only)."""
+        """Save API key to session state and local file for persistence."""
         try:
-            # For deployment, API keys should be set via environment variables or Streamlit secrets
-            # This method is only for local development convenience
+            # Save to session state
             if key_type == 'groq':
                 st.session_state.saved_groq_key = api_key
             elif key_type == 'gemini':
                 st.session_state.saved_gemini_key = api_key
-            logger.info(f"Saved {key_type} API key to session state")
+            
+            # Save to local file for persistence
+            import os
+            data_dir = "data"
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir)
+            
+            key_file = os.path.join(data_dir, f"{key_type}_api_key.txt")
+            with open(key_file, 'w') as f:
+                f.write(api_key)
+            
+            logger.info(f"Saved {key_type} API key to session state and file")
             return True
         except Exception as e:
             logger.error(f"Could not save {key_type} API key: {str(e)}")
             return False
     
     def delete_saved_api_key(self, key_type: str) -> bool:
-        """Clear saved API key from session state."""
+        """Clear saved API key from session state and local file."""
         try:
             # Clear from session state
             if key_type == 'groq':
                 st.session_state.saved_groq_key = ""
             elif key_type == 'gemini':
                 st.session_state.saved_gemini_key = ""
-            logger.info(f"Cleared {key_type} API key from session state")
+            
+            # Delete local file
+            import os
+            data_dir = "data"
+            key_file = os.path.join(data_dir, f"{key_type}_api_key.txt")
+            if os.path.exists(key_file):
+                os.remove(key_file)
+            
+            logger.info(f"Cleared {key_type} API key from session state and file")
             return True
         except Exception as e:
             logger.error(f"Could not clear {key_type} API key: {str(e)}")
@@ -319,17 +523,16 @@ class StreamlitTradingApp:
         # Sidebar
         self.create_sidebar()
         
-        # Main content
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
-            "📰 News Analysis", 
-            "🤖 Groq News Analysis", 
-            "🎯 BUY Recommendations", 
-            "📈 Swing Trading Plans", 
-            "👀 Watchlist", 
-            "🔍 Manual Analysis",
+        # Main content - Compact tab layout
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+            "📰 News", 
+            "🤖 Groq", 
+            "🎯 BUY", 
+            "📈 Swing", 
+            "👀 Watch", 
+            "🔍 Manual",
             "📊 Portfolio",
-            "🔔 Notifications",
-            "💾 Saved Data"
+            "🔔 Alerts"
         ])
         
         with tab1:
@@ -355,96 +558,168 @@ class StreamlitTradingApp:
         
         with tab8:
             self.notifications_tab()
-        
-        with tab9:
-            self.saved_data_tab()
     
     def create_sidebar(self):
         """Create the sidebar with controls."""
-        st.sidebar.title("🎛️ Control Panel")
-        
-        # API Configuration Section
-        st.sidebar.header("🔑 API Configuration")
-        
-        # Groq API Key
-        groq_key = st.sidebar.text_input(
-            "Groq API Key",
-            value=st.session_state.saved_groq_key,
-            type="password",
-            help="Enter your Groq API key for AI-powered news analysis",
-            placeholder="gsk_..."
-        )
-        
-        # Groq API Key Actions
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            if st.button("💾 Save", key="save_groq"):
-                if groq_key and groq_key != st.session_state.saved_groq_key:
-                    if self.save_api_key('groq', groq_key):
-                        st.session_state.saved_groq_key = groq_key
-                        st.sidebar.success("✅ Groq API key saved!")
+        # Compact sidebar - only show essential controls
+        with st.sidebar:
+            # Always show essential controls
+            st.markdown("### 🚀 Quick Actions")
+            
+            # Market Analysis Button
+            if st.button("📊 Analyze Market", key="analyze_market_btn", type="primary"):
+                if not st.session_state.get('analysis_in_progress', False):
+                    st.session_state.analysis_in_progress = True
+                    self.analyze_market()
+            
+            # Show analysis status
+            if st.session_state.get('analysis_in_progress', False):
+                st.info("🔄 Analysis in progress...")
+            
+            # Show last analysis time
+            if st.session_state.get('last_analysis_time'):
+                st.caption(f"Last: {st.session_state.last_analysis_time[11:16]}")
+            
+            # Always show API Keys section
+            st.markdown("---")
+            st.markdown("### 🔑 API Keys")
+            
+            # Groq API Key
+            groq_key = st.text_input(
+                "Groq API Key",
+                value=st.session_state.saved_groq_key,
+                type="password",
+                help="Enter your Groq API key",
+                placeholder="gsk_..."
+            )
+            
+            # Groq API Key Actions
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("💾 Save", key="save_groq"):
+                    if groq_key and groq_key != st.session_state.saved_groq_key:
+                        if self.save_api_key('groq', groq_key):
+                            st.session_state.saved_groq_key = groq_key
+                            # Reinitialize Groq analyzer with new key
+                            self.groq_analyzer.api_key = groq_key
+                            self.groq_analyzer.initialized = True
+                            st.success("✅ Saved and initialized!")
+                        else:
+                            st.error("❌ Failed to save")
                     else:
-                        st.sidebar.error("❌ Failed to save Groq API key")
-                else:
-                    st.sidebar.info("ℹ️ No changes to save")
-        
-        with col2:
-            if st.button("🗑️ Delete", key="delete_groq"):
-                if self.delete_saved_api_key('groq'):
-                    st.session_state.saved_groq_key = ""
-                    st.sidebar.success("✅ Groq API key deleted!")
-                    st.rerun()
-                else:
-                    st.sidebar.error("❌ Failed to delete Groq API key")
-        
-        if groq_key:
-            # Update the Groq analyzer with the new key
-            if hasattr(self, 'groq_analyzer'):
+                        st.info("ℹ️ No changes to save")
+            
+            with col2:
+                if st.button("🗑️ Delete", key="delete_groq"):
+                    if self.delete_saved_api_key('groq'):
+                        st.session_state.saved_groq_key = ""
+                        # Deinitialize Groq analyzer
+                        self.groq_analyzer.api_key = ""
+                        self.groq_analyzer.initialized = False
+                        st.success("✅ Groq API key deleted!")
+                    else:
+                        st.error("❌ Failed to delete Groq API key")
+            
+            # Gemini API Key
+            gemini_key = st.text_input(
+                "Gemini API Key",
+                value=st.session_state.saved_gemini_key,
+                type="password",
+                help="Enter your Gemini API key",
+                placeholder="AIza..."
+            )
+            
+            # Gemini API Key Actions
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("💾 Save", key="save_gemini"):
+                    if gemini_key and gemini_key != st.session_state.saved_gemini_key:
+                        if self.save_api_key('gemini', gemini_key):
+                            st.session_state.saved_gemini_key = gemini_key
+                            # Reinitialize Gemini analyzer with new key
+                            self.gemini_analyzer.api_key = gemini_key
+                            self.gemini_analyzer.initialized = True
+                            st.success("✅ Saved and initialized!")
+                        else:
+                            st.error("❌ Failed to save")
+                    else:
+                        st.info("ℹ️ No changes to save")
+            
+            with col2:
+                if st.button("🗑️ Delete", key="delete_gemini"):
+                    if self.delete_saved_api_key('gemini'):
+                        st.session_state.saved_gemini_key = ""
+                        # Deinitialize Gemini analyzer
+                        self.gemini_analyzer.api_key = ""
+                        self.gemini_analyzer.initialized = False
+                        st.success("✅ Gemini API key deleted!")
+                    else:
+                        st.error("❌ Failed to delete Gemini API key")
+            
+            # Update analyzers
+            if groq_key and hasattr(self, 'groq_analyzer'):
                 self.groq_analyzer.api_key = groq_key
                 self.groq_analyzer.initialized = True
                 if groq_key == st.session_state.saved_groq_key:
-                    st.sidebar.success("✅ Groq API key loaded from saved settings!")
+                    st.success("✅ Groq API key loaded from saved settings!")
                 else:
-                    st.sidebar.success("✅ Groq API key set! (Click Save to remember)")
+                    st.success("✅ Groq API key set! (Click Save to remember)")
             else:
-                st.sidebar.warning("⚠️ Groq analyzer not initialized")
-        else:
-            if hasattr(self, 'groq_analyzer'):
-                self.groq_analyzer.initialized = False
-                st.sidebar.info("ℹ️ Enter Groq API key to enable AI analysis")
-        
-        st.sidebar.markdown("---")
-        
-        # Gemini API Key
-        gemini_key = st.sidebar.text_input(
-            "Gemini API Key",
-            value=st.session_state.saved_gemini_key,
-            type="password",
-            help="Enter your Gemini API key for comprehensive AI analysis",
-            placeholder="AIza..."
-        )
-        
-        # Gemini API Key Actions
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            if st.button("💾 Save", key="save_gemini"):
-                if gemini_key and gemini_key != st.session_state.saved_gemini_key:
-                    if self.save_api_key('gemini', gemini_key):
-                        st.session_state.saved_gemini_key = gemini_key
-                        st.sidebar.success("✅ Gemini API key saved!")
-                    else:
-                        st.sidebar.error("❌ Failed to save Gemini API key")
+                if hasattr(self, 'groq_analyzer'):
+                    self.groq_analyzer.initialized = False
+                    st.info("ℹ️ Enter Groq API key to enable AI analysis")
+            
+            if gemini_key and hasattr(self, 'gemini_analyzer'):
+                self.gemini_analyzer.api_key = gemini_key
+                self.gemini_analyzer.initialized = True
+                if gemini_key == st.session_state.saved_gemini_key:
+                    st.success("✅ Gemini API key loaded from saved settings!")
                 else:
-                    st.sidebar.info("ℹ️ No changes to save")
-        
-        with col2:
-            if st.button("🗑️ Delete", key="delete_gemini"):
-                if self.delete_saved_api_key('gemini'):
-                    st.session_state.saved_gemini_key = ""
-                    st.sidebar.success("✅ Gemini API key deleted!")
+                    st.success("✅ Gemini API key set! (Click Save to remember)")
+            else:
+                if hasattr(self, 'gemini_analyzer'):
+                    self.gemini_analyzer.initialized = False
+                    st.info("ℹ️ Enter Gemini API key to enable AI analysis")
+            
+            st.markdown("---")
+            st.markdown("### 💾 Cache")
+            
+            # Cache statistics
+            cache_manager = st.session_state.cache_manager
+            cache_stats = cache_manager.get_cache_stats()
+            st.metric("Articles", cache_stats.get('articles', 0))
+            st.metric("Stocks", cache_stats.get('stocks', 0))
+            
+            if st.button("🗑️ Clear Cache", key="clear_cache_btn"):
+                cache_manager.clear_cache('all')
+                st.success("Cache cleared!")
+                st.rerun()
+            
+            st.markdown("---")
+            st.markdown("### ⏰ Scheduled Analysis")
+            
+            # Show scheduled analysis status
+            if st.session_state.get('scheduled_analysis'):
+                scheduler = st.session_state.scheduled_analysis
+                status = scheduler.get_scheduler_status()
+                
+                if status['is_running']:
+                    st.success("🟢 Running")
+                else:
+                    st.error("🔴 Stopped")
+                
+                st.caption(f"Next: {status['next_analysis']}")
+                st.caption(f"Days: {', '.join(status['scheduled_days'])}")
+                st.caption(f"Time: {status['scheduled_time']}")
+                
+                # Manual trigger button
+                if st.button("🚀 Run Analysis Now", key="manual_analysis_btn"):
+                    scheduler.run_analysis_now()
+                    st.success("Analysis triggered!")
                     st.rerun()
-                else:
-                    st.sidebar.error("❌ Failed to delete Gemini API key")
+            else:
+                st.warning("Scheduler not initialized")
+        
         
         if gemini_key:
             # Update the Gemini analyzer with the new key
@@ -541,28 +816,40 @@ class StreamlitTradingApp:
         """News Analysis tab."""
         st.header("📰 News Analysis")
         
-        col1, col2 = st.columns([3, 1])
+        col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            if st.button("📰 Fetch Latest News", type="primary"):
+            if st.button("📰 Fetch Latest News", type="primary", key="fetch_news_btn"):
                 self.fetch_news()
         
         with col2:
-            if st.button("🔍 Analyze Sentiment"):
+            if st.button("🔍 Analyze Sentiment", key="analyze_sentiment_btn"):
                 self.analyze_sentiment()
         
-        # Display news articles
+        # News is automatically saved when fetched
+        
+        # Display news articles in rows
         if st.session_state.news_articles:
             st.subheader(f"📰 Latest News ({len(st.session_state.news_articles)} articles)")
             
+            # Header row
+            col1, col2, col3, col4, col5 = st.columns([3, 1.5, 1, 1, 0.8])
+            with col1:
+                st.markdown("**Headline**")
+            with col2:
+                st.markdown("**Source**")
+            with col3:
+                st.markdown("**Published**")
+            with col4:
+                st.markdown("**Sentiment**")
+            with col5:
+                st.markdown("**Details**")
+            
+            st.markdown("---")
+            
+            # Display each article in a row
             for i, article in enumerate(st.session_state.news_articles[:10]):
-                with st.expander(f"📄 {article.get('title', 'No title')[:80]}..."):
-                    st.markdown(f"**Source:** {article.get('source', 'Unknown')}")
-                    st.markdown(f"**Published:** {article.get('publishedAt', 'Unknown')}")
-                    st.markdown(f"**Description:** {article.get('description', 'No description')}")
-                    
-                    if article.get('url'):
-                        st.markdown(f"[Read Full Article]({article['url']})")
+                ExpandableUI.display_news_row(article, i)
         else:
             st.info("No news articles available. Click 'Fetch Latest News' to get started.")
     
@@ -573,19 +860,19 @@ class StreamlitTradingApp:
         col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
         
         with col1:
-            if st.button("🔍 Fetch Groq News Analysis", type="primary"):
+            if st.button("🔍 Fetch Groq News Analysis", type="primary", key="fetch_groq_analysis_btn"):
                 self.fetch_groq_news_analysis()
         
         with col2:
-            if st.button("📰 Fetch Indian News"):
+            if st.button("📰 Fetch Indian News", key="fetch_indian_news_btn"):
                 self.fetch_news()
         
         with col3:
-            if st.button("🔄 Refresh Display"):
+            if st.button("🔄 Refresh Display", key="refresh_display_btn"):
                 st.rerun()
         
         with col4:
-            if st.button("📡 Test RSS Feeds"):
+            if st.button("📡 Test RSS Feeds", key="test_rss_feeds_btn"):
                 self.test_rss_feeds()
         
         # Display Groq news analysis
@@ -657,49 +944,73 @@ class StreamlitTradingApp:
         col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            if st.button("🔍 Generate BUY Recommendations", type="primary"):
+            if st.button("🔍 Generate BUY Recommendations", type="primary", key="generate_buy_recs_btn"):
                 self.analyze_market()
         
         with col2:
-            if st.button("🔄 Refresh"):
+            if st.button("🔄 Refresh", key="refresh_recs_btn"):
                 st.rerun()
         
-        with col3:
-            if st.button("💾 Save to Database"):
-                self.save_recommendations()
+        # Recommendations are automatically saved when generated
         
         # Display recommendations
         if st.session_state.recommendations:
             st.subheader(f"🎯 BUY Recommendations ({len(st.session_state.recommendations)} stocks)")
             
-            # Filter options
-            col1, col2, col3 = st.columns(3)
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
             with col1:
-                min_confidence = st.slider("Minimum Confidence", 0, 100, 35)  # Default to 35% for lenient criteria
+                st.metric("Total BUY", len(st.session_state.recommendations))
+            
             with col2:
-                sort_by = st.selectbox("Sort by", ["Confidence", "Symbol", "Current Price", "Swing Score"])
+                avg_confidence = sum(r.get('confidence', 0) for r in st.session_state.recommendations) / len(st.session_state.recommendations)
+                st.metric("Avg Confidence", f"{avg_confidence:.1f}%")
+            
             with col3:
-                show_swing_plans = st.checkbox("Show Swing Plans", value=True)
+                high_confidence = len([r for r in st.session_state.recommendations if r.get('confidence', 0) >= 80])
+                st.metric("High Confidence", high_confidence)
             
-            # Filter and sort recommendations (all are BUY recommendations)
-            filtered_recs = st.session_state.recommendations.copy()
+            with col4:
+                st.metric("Actions", "View Saved")
+                if st.button("📊 View Saved", key="view_saved_recs"):
+                    st.session_state.show_saved_recommendations = not st.session_state.get('show_saved_recommendations', False)
             
-            # Filter by confidence
-            filtered_recs = [rec for rec in filtered_recs if rec.get('confidence', 0) >= min_confidence]
+            # Show saved recommendations if toggled
+            if st.session_state.get('show_saved_recommendations', False):
+                self.display_saved_recommendations()
+                return
             
-            # Sort recommendations
-            if sort_by == "Confidence":
-                filtered_recs.sort(key=lambda x: x.get('confidence', 0), reverse=True)
-            elif sort_by == "Symbol":
-                filtered_recs.sort(key=lambda x: x.get('symbol', ''))
-            elif sort_by == "Current Price":
-                filtered_recs.sort(key=lambda x: x.get('current_price', 0), reverse=True)
-            elif sort_by == "Swing Score":
-                filtered_recs.sort(key=lambda x: x.get('swing_validation', {}).get('score', 0), reverse=True)
+            st.markdown("---")
             
-            # Display filtered recommendations
-            for i, rec in enumerate(filtered_recs):
-                self.display_buy_recommendation_card(rec, i, show_swing_plans)
+            # Header row
+            col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1.5, 1, 1, 1, 0.8, 0.8])
+            with col1:
+                st.markdown("**Stock**")
+            with col2:
+                st.markdown("**CMP**")
+            with col3:
+                st.markdown("**Target**")
+            with col4:
+                st.markdown("**Stop Loss**")
+            with col5:
+                st.markdown("**Confidence**")
+            with col6:
+                st.markdown("**Details**")
+            with col7:
+                st.markdown("**Actions**")
+            
+            st.markdown("---")
+            
+            # Display recommendations in rows
+            for i, rec in enumerate(st.session_state.recommendations):
+                ExpandableUI.display_recommendation_row(rec, i)
+                
+                # Check if add to watchlist button was clicked
+                if st.session_state.get(f"add_to_watchlist_{i}", False):
+                    self.add_to_watchlist(rec)
+                    st.session_state[f"add_to_watchlist_{i}"] = False
+                    st.rerun()
         else:
             st.info("No BUY recommendations available. Click 'Generate BUY Recommendations' to get started.")
     
@@ -877,69 +1188,112 @@ class StreamlitTradingApp:
     def swing_trading_tab(self):
         """Swing Trading Plans tab."""
         st.header("📈 7-Day Swing Trading Plans")
-        st.info("Detailed swing trading plans for all BUY recommendations with position sizing and risk management.")
+        
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            if st.button("🔄 Refresh Strategies", type="primary", key="refresh_strategies_btn"):
+                if st.session_state.get('recommendations'):
+                    st.rerun()
+                else:
+                    st.warning("No recommendations to refresh. Run market analysis first.")
+        
+        # Swing strategies are automatically saved when generated
+        
+        with col3:
+            if st.button("📊 View Saved", key="view_saved_swing"):
+                st.session_state.show_saved_swing_strategies = not st.session_state.get('show_saved_swing_strategies', False)
+        
+        # Show saved strategies if toggled
+        if st.session_state.get('show_saved_swing_strategies', False):
+            self.display_saved_swing_strategies()
+            return
         
         if st.session_state.recommendations:
-            # Group recommendations by swing score
-            high_score_recs = []
-            medium_score_recs = []
-            low_score_recs = []
-            
+            # Extract swing strategies from recommendations
+            swing_strategies = []
             for rec in st.session_state.recommendations:
-                swing_validation = rec.get('swing_validation', {})
-                score = swing_validation.get('score', 0)
-                
-                if score >= 70:
-                    high_score_recs.append(rec)
-                elif score >= 50:
-                    medium_score_recs.append(rec)
-                else:
-                    low_score_recs.append(rec)
+                swing_plan = rec.get('swing_plan', {})
+                if swing_plan:
+                    swing_strategies.append(swing_plan)
             
-            # Display high score recommendations
-            if high_score_recs:
-                st.subheader(f"🔥 High Score Swing Opportunities ({len(high_score_recs)} stocks)")
-                st.success("These stocks have the highest swing trading potential (Score ≥ 70)")
+            if swing_strategies:
+                st.subheader(f"📈 Swing Trading Plans ({len(swing_strategies)} strategies)")
                 
-                for i, rec in enumerate(high_score_recs):
-                    swing_plan = rec.get('swing_plan', {})
-                    if swing_plan:
-                        self.display_swing_plan(swing_plan)
-                        st.markdown("---")
-            
-            # Display medium score recommendations
-            if medium_score_recs:
-                st.subheader(f"⚡ Medium Score Swing Opportunities ({len(medium_score_recs)} stocks)")
-                st.warning("These stocks have moderate swing trading potential (Score 50-69)")
+                # Summary metrics
+                col1, col2, col3, col4 = st.columns(4)
                 
-                for i, rec in enumerate(medium_score_recs):
-                    swing_plan = rec.get('swing_plan', {})
-                    if swing_plan:
-                        self.display_swing_plan(swing_plan)
-                        st.markdown("---")
-            
-            # Display low score recommendations
-            if low_score_recs:
-                st.subheader(f"⚠️ Low Score Swing Opportunities ({len(low_score_recs)} stocks)")
-                st.error("These stocks have lower swing trading potential (Score < 50)")
+                with col1:
+                    st.metric("Total Strategies", len(swing_strategies))
                 
-                for i, rec in enumerate(low_score_recs):
-                    swing_plan = rec.get('swing_plan', {})
-                    if swing_plan:
-                        self.display_swing_plan(swing_plan)
-                        st.markdown("---")
-            
-            # Strategy summary
-            with st.expander("📚 7-Day Swing Strategy Summary"):
-                swing_strategy = st.session_state.swing_strategy
-                strategy_summary = swing_strategy.get_strategy_summary()
+                with col2:
+                    high_confidence = len([s for s in swing_strategies if s.get('confidence', 0) >= 80])
+                    st.metric("High Confidence", high_confidence)
                 
-                st.markdown(f"**Strategy:** {strategy_summary['strategy_name']}")
-                st.markdown(f"**Description:** {strategy_summary['description']}")
+                with col3:
+                    avg_risk_reward = sum(s.get('risk_reward_ratio', 0) for s in swing_strategies) / len(swing_strategies)
+                    st.metric("Avg Risk-Reward", f"{avg_risk_reward:.2f}:1")
                 
-                st.markdown("**Key Rules:**")
-                for rule in strategy_summary['key_rules']:
-                    st.write(f"• {rule}")
+                with col4:
+                    # Calculate days to expiry
+                    current_date = datetime.now()
+                    total_days = 0
+                    for strategy in swing_strategies:
+                        try:
+                            exit_date = datetime.fromisoformat(strategy.get('expected_exit_date', '').replace('Z', '+00:00'))
+                            days_remaining = (exit_date - current_date).days
+                            total_days += max(0, days_remaining)
+                        except:
+                            total_days += 7  # Default 7 days
+                    avg_days = total_days / len(swing_strategies) if swing_strategies else 0
+                    st.metric("Avg Days Left", f"{avg_days:.0f}")
+                
+                st.markdown("---")
+                
+                # Header row
+                col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8, 0.8])
+                with col1:
+                    st.markdown("**Stock**")
+                with col2:
+                    st.markdown("**CMP**")
+                with col3:
+                    st.markdown("**Take Profit**")
+                with col4:
+                    st.markdown("**Stop Loss**")
+                with col5:
+                    st.markdown("**Days Left**")
+                with col6:
+                    st.markdown("**Risk-Reward**")
+                with col7:
+                    st.markdown("**Details**")
+                with col8:
+                    st.markdown("**Actions**")
+                
+                st.markdown("---")
+                
+                # Display swing strategies in rows
+                for i, strategy in enumerate(swing_strategies):
+                    ExpandableUI.display_swing_strategy_row(strategy, i)
+                    
+                    # Check if add to watchlist button was clicked
+                    if st.session_state.get(f"add_swing_to_watchlist_{i}", False):
+                        # Convert swing strategy to recommendation format for watchlist
+                        watchlist_item = {
+                            'symbol': strategy.get('symbol', ''),
+                            'company_name': strategy.get('company_name', ''),
+                            'current_price': strategy.get('current_price', 0),
+                            'recommendation': 'BUY',
+                            'confidence': strategy.get('confidence', 0),
+                            'target_price': strategy.get('take_profit', 0),
+                            'stop_loss': strategy.get('stop_loss', 0),
+                            'reasoning': f"Swing trading strategy: {strategy.get('strategy_name', '')}",
+                            'created_at': datetime.now().isoformat()
+                        }
+                        self.add_to_watchlist(watchlist_item)
+                        st.session_state[f"add_swing_to_watchlist_{i}"] = False
+                        st.rerun()
+            else:
+                st.info("No swing trading plans available. Generate BUY recommendations first.")
         else:
             st.info("No swing trading plans available. Generate BUY recommendations first.")
     
@@ -947,19 +1301,23 @@ class StreamlitTradingApp:
         """Watchlist tab."""
         st.header("👀 Watchlist Management")
         
-        col1, col2, col3 = st.columns([2, 1, 1])
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
         
         with col1:
-            if st.button("🧠 Learn from Performance", type="primary"):
-                self.analyze_watchlist_stocks()
-        
-        with col2:
-            if st.button("🔄 Update Prices"):
+            if st.button("🔄 Update Prices", type="primary", key="update_prices_btn"):
                 self.update_watchlist_prices()
         
-        with col3:
-            if st.button("🗑️ Clear Watchlist"):
+        with col2:
+            if st.button("🧠 Analyze Performance", key="analyze_performance_btn"):
+                self.analyze_watchlist_stocks()
+        
+        # Watchlist is automatically saved when modified
+        
+        with col4:
+            if st.button("🗑️ Clear Watchlist", key="clear_watchlist_btn"):
                 st.session_state.watchlist = []
+                # Auto-save empty watchlist
+                self._auto_save_watchlist()
                 st.success("Watchlist cleared!")
                 st.rerun()
         
@@ -967,8 +1325,62 @@ class StreamlitTradingApp:
         if st.session_state.watchlist:
             st.subheader(f"👀 Watchlist ({len(st.session_state.watchlist)} stocks)")
             
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Total Stocks", len(st.session_state.watchlist))
+            
+            with col2:
+                active_count = len([item for item in st.session_state.watchlist if item.get('status') == 'ACTIVE'])
+                st.metric("Active", active_count)
+            
+            with col3:
+                # Calculate total P&L
+                total_pnl = 0
+                for item in st.session_state.watchlist:
+                    entry_price = item.get('entry_price', 0)
+                    current_price = item.get('current_price', 0)
+                    if entry_price > 0:
+                        pnl = ((current_price - entry_price) / entry_price) * 100
+                        total_pnl += pnl
+                avg_pnl = total_pnl / len(st.session_state.watchlist) if st.session_state.watchlist else 0
+                st.metric("Avg P&L", f"{avg_pnl:.1f}%")
+            
+            with col4:
+                st.metric("Actions", "View Saved")
+                if st.button("📊 View Saved", key="view_saved_watchlist"):
+                    st.session_state.show_saved_watchlist = not st.session_state.get('show_saved_watchlist', False)
+            
+            # Show saved watchlist if toggled
+            if st.session_state.get('show_saved_watchlist', False):
+                self.display_saved_watchlist()
+                return
+            
+            st.markdown("---")
+            
+            # Header row
+            col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8])
+            with col1:
+                st.markdown("**Stock**")
+            with col2:
+                st.markdown("**Entry Price**")
+            with col3:
+                st.markdown("**CMP**")
+            with col4:
+                st.markdown("**P&L**")
+            with col5:
+                st.markdown("**Date Added**")
+            with col6:
+                st.markdown("**Status**")
+            with col7:
+                st.markdown("**Details**")
+            
+            st.markdown("---")
+            
+            # Display watchlist items in rows
             for i, item in enumerate(st.session_state.watchlist):
-                self.display_watchlist_item(item, i)
+                ExpandableUI.display_watchlist_row(item, i)
         else:
             st.info("No stocks in watchlist. Add stocks from recommendations or manual analysis.")
     
@@ -1028,7 +1440,7 @@ class StreamlitTradingApp:
             )
         
         with col2:
-            if st.button("🔍 Analyze Stock", type="primary"):
+            if st.button("🔍 Analyze Stock", type="primary", key="analyze_stock_btn"):
                 if symbol:
                     self.analyze_manual_stock(symbol.upper())
                 else:
@@ -1091,7 +1503,7 @@ class StreamlitTradingApp:
             st.markdown("**Email Status**")
             
             # Test email connection
-            if st.button("🧪 Test Email Connection"):
+            if st.button("🧪 Test Email Connection", key="test_email_btn"):
                 with st.spinner("Testing email connection..."):
                     result = email_manager.test_email_connection()
                     if result['success']:
@@ -1102,7 +1514,7 @@ class StreamlitTradingApp:
             # Email notifications toggle
             email_enabled = st.checkbox("Enable Email Notifications", value=settings.email_enabled)
             
-            if st.button("💾 Save Email Settings"):
+            if st.button("💾 Save Email Settings", key="save_email_settings_btn"):
                 try:
                     email_manager.update_settings(
                         smtp_server=smtp_server,
@@ -1158,7 +1570,7 @@ class StreamlitTradingApp:
             quiet_start = st.time_input("Quiet Hours Start", value=datetime.strptime(prefs.quiet_hours_start, "%H:%M").time())
             quiet_end = st.time_input("Quiet Hours End", value=datetime.strptime(prefs.quiet_hours_end, "%H:%M").time())
         
-        if st.button("💾 Save Alert Preferences"):
+        if st.button("💾 Save Alert Preferences", key="save_alert_prefs_btn"):
             try:
                 settings_manager.update_preferences(
                     target_hit_alerts=target_hit,
@@ -1215,22 +1627,22 @@ class StreamlitTradingApp:
             st.markdown("**Controls**")
             
             if monitor_status['status'] == 'running':
-                if st.button("⏸️ Pause Monitoring"):
+                if st.button("⏸️ Pause Monitoring", key="pause_monitoring_btn"):
                     price_monitor.pause_monitoring()
                     st.success("Monitoring paused!")
                     st.rerun()
-                if st.button("⏹️ Stop Monitoring"):
+                if st.button("⏹️ Stop Monitoring", key="stop_monitoring_btn"):
                     price_monitor.stop_monitoring()
                     st.success("Monitoring stopped!")
                     st.rerun()
             elif monitor_status['status'] == 'paused':
-                if st.button("▶️ Resume Monitoring"):
+                if st.button("▶️ Resume Monitoring", key="resume_monitoring_btn"):
                     price_monitor.resume_monitoring()
                     st.success("Monitoring resumed!")
                     st.rerun()
             else:
                 check_interval = st.number_input("Check Interval (seconds)", 30, 300, 60)
-                if st.button("▶️ Start Monitoring"):
+                if st.button("▶️ Start Monitoring", key="start_monitoring_btn"):
                     if monitor_status['monitored_stocks_count'] > 0:
                         price_monitor.start_monitoring(check_interval)
                         st.success("Monitoring started!")
@@ -1241,7 +1653,7 @@ class StreamlitTradingApp:
         # Add stocks from watchlist to monitoring
         if st.session_state.watchlist:
             st.markdown("**Add Watchlist Stocks to Monitoring**")
-            if st.button("📊 Add All Watchlist Stocks to Monitoring"):
+            if st.button("📊 Add All Watchlist Stocks to Monitoring", key="add_watchlist_to_monitoring_btn"):
                 added_count = 0
                 for item in st.session_state.watchlist:
                     stock_data = {
@@ -1285,7 +1697,7 @@ class StreamlitTradingApp:
         with col1:
             limit = st.number_input("Show Last N Alerts", 10, 100, 20)
         with col2:
-            if st.button("🗑️ Clear History"):
+            if st.button("🗑️ Clear History", key="clear_history_btn"):
                 if email_manager.clear_alert_history():
                     st.success("Alert history cleared!")
                     st.rerun()
@@ -1344,53 +1756,22 @@ class StreamlitTradingApp:
                 for priority, count in priorities.items():
                     st.write(f"• {priority.title()}: {count}")
     
-    def saved_data_tab(self):
-        """Saved data management tab."""
-        st.header("💾 Saved Data Management")
-        st.info("View and manage your saved recommendations, watchlist, and swing trading strategies.")
-        
-        data_persistence = st.session_state.data_persistence
-        
-        # Data summary
-        summary = data_persistence.get_data_summary()
-        ExpandableUI.display_data_summary(summary)
-        
-        # Create tabs for different data types
-        data_tab1, data_tab2, data_tab3, data_tab4 = st.tabs([
-            "📊 Recommendations",
-            "👀 Watchlist",
-            "📈 Swing Strategies",
-            "⚙️ Data Management"
-        ])
-        
-        with data_tab1:
-            self.saved_recommendations_section()
-        
-        with data_tab2:
-            self.saved_watchlist_section()
-        
-        with data_tab3:
-            self.saved_swing_strategies_section()
-        
-        with data_tab4:
-            self.data_management_section()
-    
-    def saved_recommendations_section(self):
-        """Display saved recommendations by date."""
+    def display_saved_recommendations(self):
+        """Display saved recommendations."""
         st.subheader("📊 Saved Recommendations")
         
         data_persistence = st.session_state.data_persistence
         available_dates = data_persistence.get_available_dates()
         
         if not available_dates:
-            st.info("No saved recommendations found. Generate recommendations first to see them here.")
+            st.info("No saved recommendations found.")
             return
         
         # Date selector
         selected_date = st.selectbox(
             "Select Date",
             available_dates,
-            help="Recommendations are automatically saved for 7 days"
+            key="saved_rec_date_selector"
         )
         
         if selected_date:
@@ -1399,21 +1780,18 @@ class StreamlitTradingApp:
             if recommendations:
                 st.success(f"Found {len(recommendations)} recommendations for {selected_date}")
                 
-                # Display recommendations in expandable rows
-                st.markdown("**📋 Recommendations List**")
-                
                 # Header row
-                col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1.5, 1.5, 1.5, 1])
+                col1, col2, col3, col4, col5, col6 = st.columns([1.5, 1.5, 1, 1, 1, 0.8])
                 with col1:
                     st.markdown("**Stock**")
                 with col2:
-                    st.markdown("**Price & Confidence**")
+                    st.markdown("**CMP**")
                 with col3:
-                    st.markdown("**Action**")
-                with col4:
                     st.markdown("**Target**")
-                with col5:
+                with col4:
                     st.markdown("**Stop Loss**")
+                with col5:
+                    st.markdown("**Confidence**")
                 with col6:
                     st.markdown("**Details**")
                 
@@ -1422,32 +1800,10 @@ class StreamlitTradingApp:
                 # Display each recommendation
                 for i, rec in enumerate(recommendations):
                     ExpandableUI.display_recommendation_row(rec, i)
-                
-                # Actions
-                st.markdown("**⚡ Actions**")
-                action_col1, action_col2 = st.columns(2)
-                
-                with action_col1:
-                    if st.button(f"🗑️ Delete All for {selected_date}", key=f"delete_recs_{selected_date}"):
-                        if data_persistence.delete_recommendations_by_date(selected_date):
-                            st.success(f"Deleted all recommendations for {selected_date}")
-                            st.rerun()
-                        else:
-                            st.error("Failed to delete recommendations")
-                
-                with action_col2:
-                    if st.button(f"📥 Export {selected_date}", key=f"export_recs_{selected_date}"):
-                        export_data = data_persistence.export_data("recommendations")
-                        st.download_button(
-                            label="Download JSON",
-                            data=json.dumps(export_data, indent=2),
-                            file_name=f"recommendations_{selected_date}.json",
-                            mime="application/json"
-                        )
             else:
                 st.warning(f"No recommendations found for {selected_date}")
     
-    def saved_watchlist_section(self):
+    def display_saved_watchlist(self):
         """Display saved watchlist."""
         st.subheader("👀 Saved Watchlist")
         
@@ -1455,26 +1811,23 @@ class StreamlitTradingApp:
         watchlist = data_persistence.get_watchlist()
         
         if not watchlist:
-            st.info("No saved watchlist found. Add stocks to your watchlist first.")
+            st.info("No saved watchlist found.")
             return
         
         st.success(f"Found {len(watchlist)} watchlist items")
         
-        # Display watchlist in expandable rows
-        st.markdown("**📋 Watchlist Items**")
-        
         # Header row
-        col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 1.5, 1.5, 1.5, 1.5, 1.5, 1])
+        col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8])
         with col1:
             st.markdown("**Stock**")
         with col2:
-            st.markdown("**Current**")
+            st.markdown("**Entry Price**")
         with col3:
-            st.markdown("**Entry**")
+            st.markdown("**CMP**")
         with col4:
             st.markdown("**P&L**")
         with col5:
-            st.markdown("**Target**")
+            st.markdown("**Date Added**")
         with col6:
             st.markdown("**Status**")
         with col7:
@@ -1485,46 +1838,23 @@ class StreamlitTradingApp:
         # Display each watchlist item
         for i, item in enumerate(watchlist):
             ExpandableUI.display_watchlist_row(item, i)
-        
-        # Actions
-        st.markdown("**⚡ Actions**")
-        action_col1, action_col2 = st.columns(2)
-        
-        with action_col1:
-            if st.button("🗑️ Clear Watchlist", key="clear_watchlist"):
-                if data_persistence.clear_watchlist():
-                    st.success("Watchlist cleared")
-                    st.rerun()
-                else:
-                    st.error("Failed to clear watchlist")
-        
-        with action_col2:
-            if st.button("📥 Export Watchlist", key="export_watchlist"):
-                export_data = data_persistence.export_data("watchlist")
-                st.download_button(
-                    label="Download JSON",
-                    data=json.dumps(export_data, indent=2),
-                    file_name="watchlist.json",
-                    mime="application/json"
-                )
     
-    def saved_swing_strategies_section(self):
-        """Display saved swing strategies by date."""
+    def display_saved_swing_strategies(self):
+        """Display saved swing strategies."""
         st.subheader("📈 Saved Swing Strategies")
         
         data_persistence = st.session_state.data_persistence
         available_dates = data_persistence.get_available_dates()
         
         if not available_dates:
-            st.info("No saved swing strategies found. Generate swing strategies first to see them here.")
+            st.info("No saved swing strategies found.")
             return
         
         # Date selector
         selected_date = st.selectbox(
             "Select Date",
             available_dates,
-            key="swing_date_selector",
-            help="Swing strategies are saved by date"
+            key="saved_swing_date_selector"
         )
         
         if selected_date:
@@ -1533,21 +1863,18 @@ class StreamlitTradingApp:
             if strategies:
                 st.success(f"Found {len(strategies)} swing strategies for {selected_date}")
                 
-                # Display strategies in expandable rows
-                st.markdown("**📋 Swing Strategies List**")
-                
                 # Header row
-                col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 1.5, 1.5, 1.5, 1.5, 1.5, 1])
+                col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8])
                 with col1:
                     st.markdown("**Stock**")
                 with col2:
-                    st.markdown("**Entry**")
+                    st.markdown("**CMP**")
                 with col3:
                     st.markdown("**Take Profit**")
                 with col4:
                     st.markdown("**Stop Loss**")
                 with col5:
-                    st.markdown("**Position**")
+                    st.markdown("**Days Left**")
                 with col6:
                     st.markdown("**Risk-Reward**")
                 with col7:
@@ -1558,130 +1885,9 @@ class StreamlitTradingApp:
                 # Display each strategy
                 for i, strategy in enumerate(strategies):
                     ExpandableUI.display_swing_strategy_row(strategy, i)
-                
-                # Actions
-                st.markdown("**⚡ Actions**")
-                action_col1, action_col2 = st.columns(2)
-                
-                with action_col1:
-                    if st.button(f"🗑️ Delete All for {selected_date}", key=f"delete_swing_{selected_date}"):
-                        if data_persistence.delete_swing_strategies_by_date(selected_date):
-                            st.success(f"Deleted all swing strategies for {selected_date}")
-                            st.rerun()
-                        else:
-                            st.error("Failed to delete swing strategies")
-                
-                with action_col2:
-                    if st.button(f"📥 Export {selected_date}", key=f"export_swing_{selected_date}"):
-                        export_data = data_persistence.export_data("swing_strategies")
-                        st.download_button(
-                            label="Download JSON",
-                            data=json.dumps(export_data, indent=2),
-                            file_name=f"swing_strategies_{selected_date}.json",
-                            mime="application/json"
-                        )
             else:
                 st.warning(f"No swing strategies found for {selected_date}")
     
-    def data_management_section(self):
-        """Data management and maintenance section."""
-        st.subheader("⚙️ Data Management")
-        
-        data_persistence = st.session_state.data_persistence
-        
-        # Data maintenance
-        st.markdown("**🧹 Data Maintenance**")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("🗑️ Clean Expired Data"):
-                data_persistence._cleanup_expired_data()
-                st.success("Expired data cleaned up!")
-                st.rerun()
-        
-        with col2:
-            if st.button("📊 Refresh Data Summary"):
-                st.rerun()
-        
-        # Export/Import
-        st.markdown("**📥 Export/Import**")
-        
-        export_col1, export_col2, export_col3 = st.columns(3)
-        
-        with export_col1:
-            if st.button("📥 Export All Data"):
-                export_data = data_persistence.export_data("all")
-                st.download_button(
-                    label="Download All Data",
-                    data=json.dumps(export_data, indent=2),
-                    file_name=f"trading_data_{datetime.now().strftime('%Y%m%d')}.json",
-                    mime="application/json"
-                )
-        
-        with export_col2:
-            if st.button("📥 Export Recommendations"):
-                export_data = data_persistence.export_data("recommendations")
-                st.download_button(
-                    label="Download Recommendations",
-                    data=json.dumps(export_data, indent=2),
-                    file_name=f"recommendations_{datetime.now().strftime('%Y%m%d')}.json",
-                    mime="application/json"
-                )
-        
-        with export_col3:
-            if st.button("📥 Export Watchlist"):
-                export_data = data_persistence.export_data("watchlist")
-                st.download_button(
-                    label="Download Watchlist",
-                    data=json.dumps(export_data, indent=2),
-                    file_name=f"watchlist_{datetime.now().strftime('%Y%m%d')}.json",
-                    mime="application/json"
-                )
-        
-        # Import data
-        st.markdown("**📤 Import Data**")
-        uploaded_file = st.file_uploader("Choose a JSON file", type="json")
-        
-        if uploaded_file is not None:
-            try:
-                import_data = json.load(uploaded_file)
-                if st.button("📤 Import Data"):
-                    if data_persistence.import_data(import_data):
-                        st.success("Data imported successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to import data")
-            except Exception as e:
-                st.error(f"Error reading file: {str(e)}")
-        
-        # Data statistics
-        st.markdown("**📊 Data Statistics**")
-        summary = data_persistence.get_data_summary()
-        
-        if summary:
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric(
-                    "Total Recommendations",
-                    summary.get('recommendations', {}).get('total_count', 0),
-                    f"Across {summary.get('recommendations', {}).get('dates_count', 0)} dates"
-                )
-            
-            with col2:
-                st.metric(
-                    "Watchlist Items",
-                    summary.get('watchlist', {}).get('total_count', 0),
-                    f"{summary.get('watchlist', {}).get('active_count', 0)} active"
-                )
-            
-            with col3:
-                st.metric(
-                    "Swing Strategies",
-                    summary.get('swing_strategies', {}).get('total_count', 0),
-                    f"Across {summary.get('swing_strategies', {}).get('dates_count', 0)} dates"
-                )
     
     def fetch_news(self):
         """Fetch and display filtered Indian news articles."""
@@ -1707,6 +1913,9 @@ class StreamlitTradingApp:
                 st.session_state.news_articles = indian_articles
                 st.session_state.all_articles_count = len(all_articles)
                 st.session_state.indian_articles_count = len(indian_articles)
+                
+                # Auto-save news articles
+                self._auto_save_news()
                 
                 st.success(f"✅ Filtered {len(indian_articles)} India-related articles from {len(all_articles)} total articles")
                 
@@ -2038,16 +2247,11 @@ class StreamlitTradingApp:
                 # Save to database if available
                 self.save_recommendations()
                 
-                # Save recommendations to persistent storage
-                data_persistence = st.session_state.data_persistence
-                data_persistence.save_recommendations(news_recommendations)
+                # Auto-save recommendations and swing strategies
+                self._auto_save_recommendations()
+                self._auto_save_swing_strategies()
                 
-                # Save swing strategies separately
-                swing_strategies = [rec.get('swing_plan', {}) for rec in news_recommendations if rec.get('swing_plan')]
-                if swing_strategies:
-                    data_persistence.save_swing_strategies(swing_strategies)
-                
-                st.success(f"✅ Analysis complete! Generated {len(news_recommendations)} BUY recommendations. Data saved for 7 days.")
+                st.success(f"✅ Analysis complete! Generated {len(news_recommendations)} BUY recommendations. Data auto-saved for 7 days.")
                 
         except Exception as e:
             st.error(f"❌ Error analyzing market: {str(e)}")
@@ -2139,7 +2343,7 @@ class StreamlitTradingApp:
             st.markdown(recommendation['reasoning'])
         
         # Add to watchlist button
-        if st.button(f"👀 Add {symbol} to Watchlist"):
+        if st.button(f"👀 Add {symbol} to Watchlist", key=f"add_to_watchlist_{symbol}"):
             self.add_to_watchlist({
                 'symbol': symbol,
                 'current_price': result['technical_data'].get('current_price', 0),
@@ -2180,9 +2384,8 @@ class StreamlitTradingApp:
             
             st.session_state.watchlist.append(watchlist_item)
             
-            # Save watchlist to persistent storage
-            data_persistence = st.session_state.data_persistence
-            data_persistence.save_watchlist(st.session_state.watchlist)
+            # Auto-save watchlist
+            self._auto_save_watchlist()
             
             st.success(f"✅ Added {symbol} to watchlist")
             
@@ -2295,9 +2498,8 @@ class StreamlitTradingApp:
                         except Exception as e:
                             logger.error(f"Error updating price for {symbol}: {str(e)}")
                 
-                # Save updated watchlist to persistent storage
-                data_persistence = st.session_state.data_persistence
-                data_persistence.save_watchlist(st.session_state.watchlist)
+                # Auto-save updated watchlist
+                self._auto_save_watchlist()
                 
                 st.success(f"✅ Updated prices for {updated_count}/{total_count} stocks")
                 
