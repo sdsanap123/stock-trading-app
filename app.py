@@ -50,6 +50,8 @@ from components.swing_strategy import SwingTradingStrategy
 from components.email_notifications import EmailNotificationManager, AlertType, AlertPriority
 from components.price_monitor import PriceMonitor
 from components.notification_settings import NotificationSettingsManager, NotificationChannel
+from components.data_persistence import DataPersistenceManager
+from components.expandable_ui import ExpandableUI
 
 # Page configuration
 st.set_page_config(
@@ -183,6 +185,8 @@ class StreamlitTradingApp:
             st.session_state.price_monitor = PriceMonitor(self._notification_callback)
         if 'notification_settings' not in st.session_state:
             st.session_state.notification_settings = NotificationSettingsManager()
+        if 'data_persistence' not in st.session_state:
+            st.session_state.data_persistence = DataPersistenceManager()
     
     def initialize_components(self):
         """Initialize all analysis components."""
@@ -316,7 +320,7 @@ class StreamlitTradingApp:
         self.create_sidebar()
         
         # Main content
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
             "📰 News Analysis", 
             "🤖 Groq News Analysis", 
             "🎯 BUY Recommendations", 
@@ -324,7 +328,8 @@ class StreamlitTradingApp:
             "👀 Watchlist", 
             "🔍 Manual Analysis",
             "📊 Portfolio",
-            "🔔 Notifications"
+            "🔔 Notifications",
+            "💾 Saved Data"
         ])
         
         with tab1:
@@ -350,6 +355,9 @@ class StreamlitTradingApp:
         
         with tab8:
             self.notifications_tab()
+        
+        with tab9:
+            self.saved_data_tab()
     
     def create_sidebar(self):
         """Create the sidebar with controls."""
@@ -1336,6 +1344,345 @@ class StreamlitTradingApp:
                 for priority, count in priorities.items():
                     st.write(f"• {priority.title()}: {count}")
     
+    def saved_data_tab(self):
+        """Saved data management tab."""
+        st.header("💾 Saved Data Management")
+        st.info("View and manage your saved recommendations, watchlist, and swing trading strategies.")
+        
+        data_persistence = st.session_state.data_persistence
+        
+        # Data summary
+        summary = data_persistence.get_data_summary()
+        ExpandableUI.display_data_summary(summary)
+        
+        # Create tabs for different data types
+        data_tab1, data_tab2, data_tab3, data_tab4 = st.tabs([
+            "📊 Recommendations",
+            "👀 Watchlist",
+            "📈 Swing Strategies",
+            "⚙️ Data Management"
+        ])
+        
+        with data_tab1:
+            self.saved_recommendations_section()
+        
+        with data_tab2:
+            self.saved_watchlist_section()
+        
+        with data_tab3:
+            self.saved_swing_strategies_section()
+        
+        with data_tab4:
+            self.data_management_section()
+    
+    def saved_recommendations_section(self):
+        """Display saved recommendations by date."""
+        st.subheader("📊 Saved Recommendations")
+        
+        data_persistence = st.session_state.data_persistence
+        available_dates = data_persistence.get_available_dates()
+        
+        if not available_dates:
+            st.info("No saved recommendations found. Generate recommendations first to see them here.")
+            return
+        
+        # Date selector
+        selected_date = st.selectbox(
+            "Select Date",
+            available_dates,
+            help="Recommendations are automatically saved for 7 days"
+        )
+        
+        if selected_date:
+            recommendations = data_persistence.get_recommendations_by_date(selected_date)
+            
+            if recommendations:
+                st.success(f"Found {len(recommendations)} recommendations for {selected_date}")
+                
+                # Display recommendations in expandable rows
+                st.markdown("**📋 Recommendations List**")
+                
+                # Header row
+                col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1.5, 1.5, 1.5, 1])
+                with col1:
+                    st.markdown("**Stock**")
+                with col2:
+                    st.markdown("**Price & Confidence**")
+                with col3:
+                    st.markdown("**Action**")
+                with col4:
+                    st.markdown("**Target**")
+                with col5:
+                    st.markdown("**Stop Loss**")
+                with col6:
+                    st.markdown("**Details**")
+                
+                st.markdown("---")
+                
+                # Display each recommendation
+                for i, rec in enumerate(recommendations):
+                    ExpandableUI.display_recommendation_row(rec, i)
+                
+                # Actions
+                st.markdown("**⚡ Actions**")
+                action_col1, action_col2 = st.columns(2)
+                
+                with action_col1:
+                    if st.button(f"🗑️ Delete All for {selected_date}", key=f"delete_recs_{selected_date}"):
+                        if data_persistence.delete_recommendations_by_date(selected_date):
+                            st.success(f"Deleted all recommendations for {selected_date}")
+                            st.rerun()
+                        else:
+                            st.error("Failed to delete recommendations")
+                
+                with action_col2:
+                    if st.button(f"📥 Export {selected_date}", key=f"export_recs_{selected_date}"):
+                        export_data = data_persistence.export_data("recommendations")
+                        st.download_button(
+                            label="Download JSON",
+                            data=json.dumps(export_data, indent=2),
+                            file_name=f"recommendations_{selected_date}.json",
+                            mime="application/json"
+                        )
+            else:
+                st.warning(f"No recommendations found for {selected_date}")
+    
+    def saved_watchlist_section(self):
+        """Display saved watchlist."""
+        st.subheader("👀 Saved Watchlist")
+        
+        data_persistence = st.session_state.data_persistence
+        watchlist = data_persistence.get_watchlist()
+        
+        if not watchlist:
+            st.info("No saved watchlist found. Add stocks to your watchlist first.")
+            return
+        
+        st.success(f"Found {len(watchlist)} watchlist items")
+        
+        # Display watchlist in expandable rows
+        st.markdown("**📋 Watchlist Items**")
+        
+        # Header row
+        col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 1.5, 1.5, 1.5, 1.5, 1.5, 1])
+        with col1:
+            st.markdown("**Stock**")
+        with col2:
+            st.markdown("**Current**")
+        with col3:
+            st.markdown("**Entry**")
+        with col4:
+            st.markdown("**P&L**")
+        with col5:
+            st.markdown("**Target**")
+        with col6:
+            st.markdown("**Status**")
+        with col7:
+            st.markdown("**Details**")
+        
+        st.markdown("---")
+        
+        # Display each watchlist item
+        for i, item in enumerate(watchlist):
+            ExpandableUI.display_watchlist_row(item, i)
+        
+        # Actions
+        st.markdown("**⚡ Actions**")
+        action_col1, action_col2 = st.columns(2)
+        
+        with action_col1:
+            if st.button("🗑️ Clear Watchlist", key="clear_watchlist"):
+                if data_persistence.clear_watchlist():
+                    st.success("Watchlist cleared")
+                    st.rerun()
+                else:
+                    st.error("Failed to clear watchlist")
+        
+        with action_col2:
+            if st.button("📥 Export Watchlist", key="export_watchlist"):
+                export_data = data_persistence.export_data("watchlist")
+                st.download_button(
+                    label="Download JSON",
+                    data=json.dumps(export_data, indent=2),
+                    file_name="watchlist.json",
+                    mime="application/json"
+                )
+    
+    def saved_swing_strategies_section(self):
+        """Display saved swing strategies by date."""
+        st.subheader("📈 Saved Swing Strategies")
+        
+        data_persistence = st.session_state.data_persistence
+        available_dates = data_persistence.get_available_dates()
+        
+        if not available_dates:
+            st.info("No saved swing strategies found. Generate swing strategies first to see them here.")
+            return
+        
+        # Date selector
+        selected_date = st.selectbox(
+            "Select Date",
+            available_dates,
+            key="swing_date_selector",
+            help="Swing strategies are saved by date"
+        )
+        
+        if selected_date:
+            strategies = data_persistence.get_swing_strategies_by_date(selected_date)
+            
+            if strategies:
+                st.success(f"Found {len(strategies)} swing strategies for {selected_date}")
+                
+                # Display strategies in expandable rows
+                st.markdown("**📋 Swing Strategies List**")
+                
+                # Header row
+                col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 1.5, 1.5, 1.5, 1.5, 1.5, 1])
+                with col1:
+                    st.markdown("**Stock**")
+                with col2:
+                    st.markdown("**Entry**")
+                with col3:
+                    st.markdown("**Take Profit**")
+                with col4:
+                    st.markdown("**Stop Loss**")
+                with col5:
+                    st.markdown("**Position**")
+                with col6:
+                    st.markdown("**Risk-Reward**")
+                with col7:
+                    st.markdown("**Details**")
+                
+                st.markdown("---")
+                
+                # Display each strategy
+                for i, strategy in enumerate(strategies):
+                    ExpandableUI.display_swing_strategy_row(strategy, i)
+                
+                # Actions
+                st.markdown("**⚡ Actions**")
+                action_col1, action_col2 = st.columns(2)
+                
+                with action_col1:
+                    if st.button(f"🗑️ Delete All for {selected_date}", key=f"delete_swing_{selected_date}"):
+                        if data_persistence.delete_swing_strategies_by_date(selected_date):
+                            st.success(f"Deleted all swing strategies for {selected_date}")
+                            st.rerun()
+                        else:
+                            st.error("Failed to delete swing strategies")
+                
+                with action_col2:
+                    if st.button(f"📥 Export {selected_date}", key=f"export_swing_{selected_date}"):
+                        export_data = data_persistence.export_data("swing_strategies")
+                        st.download_button(
+                            label="Download JSON",
+                            data=json.dumps(export_data, indent=2),
+                            file_name=f"swing_strategies_{selected_date}.json",
+                            mime="application/json"
+                        )
+            else:
+                st.warning(f"No swing strategies found for {selected_date}")
+    
+    def data_management_section(self):
+        """Data management and maintenance section."""
+        st.subheader("⚙️ Data Management")
+        
+        data_persistence = st.session_state.data_persistence
+        
+        # Data maintenance
+        st.markdown("**🧹 Data Maintenance**")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🗑️ Clean Expired Data"):
+                data_persistence._cleanup_expired_data()
+                st.success("Expired data cleaned up!")
+                st.rerun()
+        
+        with col2:
+            if st.button("📊 Refresh Data Summary"):
+                st.rerun()
+        
+        # Export/Import
+        st.markdown("**📥 Export/Import**")
+        
+        export_col1, export_col2, export_col3 = st.columns(3)
+        
+        with export_col1:
+            if st.button("📥 Export All Data"):
+                export_data = data_persistence.export_data("all")
+                st.download_button(
+                    label="Download All Data",
+                    data=json.dumps(export_data, indent=2),
+                    file_name=f"trading_data_{datetime.now().strftime('%Y%m%d')}.json",
+                    mime="application/json"
+                )
+        
+        with export_col2:
+            if st.button("📥 Export Recommendations"):
+                export_data = data_persistence.export_data("recommendations")
+                st.download_button(
+                    label="Download Recommendations",
+                    data=json.dumps(export_data, indent=2),
+                    file_name=f"recommendations_{datetime.now().strftime('%Y%m%d')}.json",
+                    mime="application/json"
+                )
+        
+        with export_col3:
+            if st.button("📥 Export Watchlist"):
+                export_data = data_persistence.export_data("watchlist")
+                st.download_button(
+                    label="Download Watchlist",
+                    data=json.dumps(export_data, indent=2),
+                    file_name=f"watchlist_{datetime.now().strftime('%Y%m%d')}.json",
+                    mime="application/json"
+                )
+        
+        # Import data
+        st.markdown("**📤 Import Data**")
+        uploaded_file = st.file_uploader("Choose a JSON file", type="json")
+        
+        if uploaded_file is not None:
+            try:
+                import_data = json.load(uploaded_file)
+                if st.button("📤 Import Data"):
+                    if data_persistence.import_data(import_data):
+                        st.success("Data imported successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to import data")
+            except Exception as e:
+                st.error(f"Error reading file: {str(e)}")
+        
+        # Data statistics
+        st.markdown("**📊 Data Statistics**")
+        summary = data_persistence.get_data_summary()
+        
+        if summary:
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    "Total Recommendations",
+                    summary.get('recommendations', {}).get('total_count', 0),
+                    f"Across {summary.get('recommendations', {}).get('dates_count', 0)} dates"
+                )
+            
+            with col2:
+                st.metric(
+                    "Watchlist Items",
+                    summary.get('watchlist', {}).get('total_count', 0),
+                    f"{summary.get('watchlist', {}).get('active_count', 0)} active"
+                )
+            
+            with col3:
+                st.metric(
+                    "Swing Strategies",
+                    summary.get('swing_strategies', {}).get('total_count', 0),
+                    f"Across {summary.get('swing_strategies', {}).get('dates_count', 0)} dates"
+                )
+    
     def fetch_news(self):
         """Fetch and display filtered Indian news articles."""
         with st.spinner("📰 Fetching and filtering Indian news..."):
@@ -1691,7 +2038,16 @@ class StreamlitTradingApp:
                 # Save to database if available
                 self.save_recommendations()
                 
-                st.success(f"✅ Analysis complete! Generated {len(news_recommendations)} BUY recommendations")
+                # Save recommendations to persistent storage
+                data_persistence = st.session_state.data_persistence
+                data_persistence.save_recommendations(news_recommendations)
+                
+                # Save swing strategies separately
+                swing_strategies = [rec.get('swing_plan', {}) for rec in news_recommendations if rec.get('swing_plan')]
+                if swing_strategies:
+                    data_persistence.save_swing_strategies(swing_strategies)
+                
+                st.success(f"✅ Analysis complete! Generated {len(news_recommendations)} BUY recommendations. Data saved for 7 days.")
                 
         except Exception as e:
             st.error(f"❌ Error analyzing market: {str(e)}")
@@ -1823,6 +2179,11 @@ class StreamlitTradingApp:
             }
             
             st.session_state.watchlist.append(watchlist_item)
+            
+            # Save watchlist to persistent storage
+            data_persistence = st.session_state.data_persistence
+            data_persistence.save_watchlist(st.session_state.watchlist)
+            
             st.success(f"✅ Added {symbol} to watchlist")
             
         except Exception as e:
@@ -1933,6 +2294,10 @@ class StreamlitTradingApp:
                             
                         except Exception as e:
                             logger.error(f"Error updating price for {symbol}: {str(e)}")
+                
+                # Save updated watchlist to persistent storage
+                data_persistence = st.session_state.data_persistence
+                data_persistence.save_watchlist(st.session_state.watchlist)
                 
                 st.success(f"✅ Updated prices for {updated_count}/{total_count} stocks")
                 
