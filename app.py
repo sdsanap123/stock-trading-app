@@ -47,6 +47,9 @@ from components.recommendation_learning import RecommendationTracker
 from components.firebase_integration import FirebaseSync
 from components.cache_manager import CacheManager
 from components.swing_strategy import SwingTradingStrategy
+from components.email_notifications import EmailNotificationManager, AlertType, AlertPriority
+from components.price_monitor import PriceMonitor
+from components.notification_settings import NotificationSettingsManager, NotificationChannel
 
 # Page configuration
 st.set_page_config(
@@ -174,6 +177,12 @@ class StreamlitTradingApp:
             st.session_state.cache_manager = CacheManager()
         if 'swing_strategy' not in st.session_state:
             st.session_state.swing_strategy = SwingTradingStrategy()
+        if 'email_notifications' not in st.session_state:
+            st.session_state.email_notifications = EmailNotificationManager()
+        if 'price_monitor' not in st.session_state:
+            st.session_state.price_monitor = PriceMonitor(self._notification_callback)
+        if 'notification_settings' not in st.session_state:
+            st.session_state.notification_settings = NotificationSettingsManager()
     
     def initialize_components(self):
         """Initialize all analysis components."""
@@ -259,6 +268,45 @@ class StreamlitTradingApp:
             logger.error(f"Could not clear {key_type} API key: {str(e)}")
             return False
     
+    def _notification_callback(self, alert_type: str, stock_data: Dict, additional_data: Dict = None):
+        """Callback function for price monitor alerts."""
+        try:
+            # Convert alert type string to AlertType enum
+            alert_type_mapping = {
+                'target_hit': AlertType.TARGET_HIT,
+                'stop_loss_hit': AlertType.STOP_LOSS_HIT,
+                'significant_movement': AlertType.SIGNIFICANT_MOVEMENT,
+                'daily_summary': AlertType.DAILY_SUMMARY,
+                'risk_alert': AlertType.RISK_ALERT,
+                'swing_plan_update': AlertType.SWING_PLAN_UPDATE
+            }
+            
+            alert_type_enum = alert_type_mapping.get(alert_type, AlertType.SIGNIFICANT_MOVEMENT)
+            
+            # Determine priority based on alert type
+            priority_mapping = {
+                AlertType.STOP_LOSS_HIT: AlertPriority.CRITICAL,
+                AlertType.RISK_ALERT: AlertPriority.CRITICAL,
+                AlertType.TARGET_HIT: AlertPriority.HIGH,
+                AlertType.SIGNIFICANT_MOVEMENT: AlertPriority.MEDIUM,
+                AlertType.SWING_PLAN_UPDATE: AlertPriority.MEDIUM,
+                AlertType.DAILY_SUMMARY: AlertPriority.LOW
+            }
+            
+            priority = priority_mapping.get(alert_type_enum, AlertPriority.MEDIUM)
+            
+            # Send email notification
+            email_manager = st.session_state.email_notifications
+            success = email_manager.send_alert(alert_type_enum, stock_data, additional_data, priority)
+            
+            if success:
+                logger.info(f"Notification sent successfully: {alert_type} for {stock_data.get('symbol')}")
+            else:
+                logger.warning(f"Failed to send notification: {alert_type} for {stock_data.get('symbol')}")
+                
+        except Exception as e:
+            logger.error(f"Error in notification callback: {str(e)}")
+    
     def run(self):
         """Run the main application."""
         # Header
@@ -268,14 +316,15 @@ class StreamlitTradingApp:
         self.create_sidebar()
         
         # Main content
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
             "📰 News Analysis", 
             "🤖 Groq News Analysis", 
             "🎯 BUY Recommendations", 
-            "📈 Swing Trading Plans",
+            "📈 Swing Trading Plans", 
             "👀 Watchlist", 
             "🔍 Manual Analysis",
-            "📊 Portfolio"
+            "📊 Portfolio",
+            "🔔 Notifications"
         ])
         
         with tab1:
@@ -298,6 +347,9 @@ class StreamlitTradingApp:
         
         with tab7:
             self.portfolio_tab()
+        
+        with tab8:
+            self.notifications_tab()
     
     def create_sidebar(self):
         """Create the sidebar with controls."""
@@ -982,6 +1034,307 @@ class StreamlitTradingApp:
         """Portfolio tab."""
         st.header("📊 Portfolio Tracking")
         st.info("Portfolio tracking feature will be implemented in future updates.")
+    
+    def notifications_tab(self):
+        """Notifications management tab."""
+        st.header("🔔 Email Notifications & Price Monitoring")
+        st.info("Configure email notifications and real-time price monitoring for your stocks.")
+        
+        # Create tabs for different notification sections
+        notif_tab1, notif_tab2, notif_tab3, notif_tab4 = st.tabs([
+            "📧 Email Settings",
+            "⚙️ Alert Preferences", 
+            "📊 Price Monitoring",
+            "📋 Alert History"
+        ])
+        
+        with notif_tab1:
+            self.email_settings_section()
+        
+        with notif_tab2:
+            self.alert_preferences_section()
+        
+        with notif_tab3:
+            self.price_monitoring_section()
+        
+        with notif_tab4:
+            self.alert_history_section()
+    
+    def email_settings_section(self):
+        """Email settings configuration section."""
+        st.subheader("📧 Email Configuration")
+        
+        email_manager = st.session_state.email_notifications
+        settings = email_manager.settings
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**SMTP Settings**")
+            smtp_server = st.text_input("SMTP Server", value=settings.smtp_server, help="e.g., smtp.gmail.com")
+            smtp_port = st.number_input("SMTP Port", value=settings.smtp_port, min_value=1, max_value=65535)
+            
+            st.markdown("**Email Credentials**")
+            sender_email = st.text_input("Sender Email", value=settings.sender_email, type="default")
+            sender_password = st.text_input("Sender Password", value=settings.sender_password, type="password")
+            recipient_email = st.text_input("Recipient Email", value=settings.recipient_email, type="default")
+        
+        with col2:
+            st.markdown("**Email Status**")
+            
+            # Test email connection
+            if st.button("🧪 Test Email Connection"):
+                with st.spinner("Testing email connection..."):
+                    result = email_manager.test_email_connection()
+                    if result['success']:
+                        st.success("✅ Email connection successful!")
+                    else:
+                        st.error(f"❌ Email connection failed: {result['message']}")
+            
+            # Email notifications toggle
+            email_enabled = st.checkbox("Enable Email Notifications", value=settings.email_enabled)
+            
+            if st.button("💾 Save Email Settings"):
+                try:
+                    email_manager.update_settings(
+                        smtp_server=smtp_server,
+                        smtp_port=smtp_port,
+                        sender_email=sender_email,
+                        sender_password=sender_password,
+                        recipient_email=recipient_email,
+                        email_enabled=email_enabled
+                    )
+                    st.success("✅ Email settings saved!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error saving email settings: {str(e)}")
+        
+        # Email templates preview
+        st.markdown("**📧 Email Templates Preview**")
+        with st.expander("View Email Templates"):
+            st.markdown("""
+            **Available Email Templates:**
+            - 🎯 **Target Hit**: Sent when stock reaches target price
+            - 🛑 **Stop Loss Hit**: Sent when stock hits stop loss
+            - 📊 **Significant Movement**: Sent for large price movements
+            - 📊 **Daily Summary**: Daily portfolio summary
+            - ⚠️ **Risk Alert**: Critical risk warnings
+            - 📈 **Swing Plan Update**: Swing trading plan updates
+            """)
+    
+    def alert_preferences_section(self):
+        """Alert preferences configuration section."""
+        st.subheader("⚙️ Alert Preferences")
+        
+        settings_manager = st.session_state.notification_settings
+        prefs = settings_manager.preferences
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Alert Types**")
+            target_hit = st.checkbox("Target Price Hit", value=prefs.target_hit_alerts)
+            stop_loss = st.checkbox("Stop Loss Hit", value=prefs.stop_loss_alerts)
+            significant_movement = st.checkbox("Significant Movement", value=prefs.significant_movement_alerts)
+            daily_summary = st.checkbox("Daily Summary", value=prefs.daily_summary)
+            risk_alerts = st.checkbox("Risk Alerts", value=prefs.risk_alerts)
+            swing_updates = st.checkbox("Swing Plan Updates", value=prefs.swing_plan_updates)
+        
+        with col2:
+            st.markdown("**Thresholds**")
+            movement_threshold = st.slider("Significant Movement %", 1.0, 20.0, prefs.thresholds.significant_movement_percent, 0.5)
+            max_alerts_hour = st.number_input("Max Alerts per Hour", 1, 50, prefs.thresholds.max_alerts_per_hour)
+            risk_threshold = st.slider("Risk Alert Threshold %", 5.0, 25.0, prefs.thresholds.risk_alert_threshold, 1.0)
+            
+            st.markdown("**Quiet Hours**")
+            quiet_start = st.time_input("Quiet Hours Start", value=datetime.strptime(prefs.quiet_hours_start, "%H:%M").time())
+            quiet_end = st.time_input("Quiet Hours End", value=datetime.strptime(prefs.quiet_hours_end, "%H:%M").time())
+        
+        if st.button("💾 Save Alert Preferences"):
+            try:
+                settings_manager.update_preferences(
+                    target_hit_alerts=target_hit,
+                    stop_loss_alerts=stop_loss,
+                    significant_movement_alerts=significant_movement,
+                    daily_summary=daily_summary,
+                    risk_alerts=risk_alerts,
+                    swing_plan_updates=swing_updates
+                )
+                
+                settings_manager.update_thresholds(
+                    significant_movement_percent=movement_threshold,
+                    max_alerts_per_hour=max_alerts_hour,
+                    risk_alert_threshold=risk_threshold
+                )
+                
+                settings_manager.update_preferences(
+                    quiet_hours_start=quiet_start.strftime("%H:%M"),
+                    quiet_hours_end=quiet_end.strftime("%H:%M")
+                )
+                
+                st.success("✅ Alert preferences saved!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error saving preferences: {str(e)}")
+    
+    def price_monitoring_section(self):
+        """Price monitoring management section."""
+        st.subheader("📊 Real-time Price Monitoring")
+        
+        price_monitor = st.session_state.price_monitor
+        monitor_status = price_monitor.get_monitoring_status()
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Monitoring Status**")
+            status_color = {
+                'running': '🟢',
+                'stopped': '🔴', 
+                'paused': '🟡',
+                'error': '🔴'
+            }
+            
+            status_emoji = status_color.get(monitor_status['status'], '⚪')
+            st.metric("Status", f"{status_emoji} {monitor_status['status'].title()}")
+            st.metric("Monitored Stocks", monitor_status['monitored_stocks_count'])
+            st.metric("Check Interval", f"{monitor_status['check_interval']} seconds")
+            
+            if monitor_status['last_check_time']:
+                st.metric("Last Check", monitor_status['last_check_time'][:19])
+        
+        with col2:
+            st.markdown("**Controls**")
+            
+            if monitor_status['status'] == 'running':
+                if st.button("⏸️ Pause Monitoring"):
+                    price_monitor.pause_monitoring()
+                    st.success("Monitoring paused!")
+                    st.rerun()
+                if st.button("⏹️ Stop Monitoring"):
+                    price_monitor.stop_monitoring()
+                    st.success("Monitoring stopped!")
+                    st.rerun()
+            elif monitor_status['status'] == 'paused':
+                if st.button("▶️ Resume Monitoring"):
+                    price_monitor.resume_monitoring()
+                    st.success("Monitoring resumed!")
+                    st.rerun()
+            else:
+                check_interval = st.number_input("Check Interval (seconds)", 30, 300, 60)
+                if st.button("▶️ Start Monitoring"):
+                    if monitor_status['monitored_stocks_count'] > 0:
+                        price_monitor.start_monitoring(check_interval)
+                        st.success("Monitoring started!")
+                        st.rerun()
+                    else:
+                        st.warning("No stocks in watchlist to monitor!")
+        
+        # Add stocks from watchlist to monitoring
+        if st.session_state.watchlist:
+            st.markdown("**Add Watchlist Stocks to Monitoring**")
+            if st.button("📊 Add All Watchlist Stocks to Monitoring"):
+                added_count = 0
+                for item in st.session_state.watchlist:
+                    stock_data = {
+                        'symbol': item['symbol'],
+                        'current_price': item['current_price'],
+                        'target_price': item.get('target_price'),
+                        'stop_loss': item.get('stop_loss'),
+                        'entry_price': item.get('entry_price', item['current_price'])
+                    }
+                    if price_monitor.add_stock_to_monitor(stock_data):
+                        added_count += 1
+                
+                st.success(f"✅ Added {added_count} stocks to monitoring!")
+                st.rerun()
+        
+        # Show monitored stocks
+        if monitor_status['monitored_stocks']:
+            st.markdown("**Monitored Stocks**")
+            for symbol in monitor_status['monitored_stocks']:
+                stock_status = price_monitor.get_stock_status(symbol)
+                if stock_status:
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.write(f"**{symbol}**")
+                    with col2:
+                        st.write(f"Price: ₹{stock_status['current_price']:.2f}")
+                    with col3:
+                        if st.button(f"Remove {symbol}", key=f"remove_{symbol}"):
+                            price_monitor.remove_stock_from_monitor(symbol)
+                            st.success(f"Removed {symbol} from monitoring!")
+                            st.rerun()
+    
+    def alert_history_section(self):
+        """Alert history section."""
+        st.subheader("📋 Alert History")
+        
+        email_manager = st.session_state.email_notifications
+        
+        # Alert history controls
+        col1, col2 = st.columns(2)
+        with col1:
+            limit = st.number_input("Show Last N Alerts", 10, 100, 20)
+        with col2:
+            if st.button("🗑️ Clear History"):
+                if email_manager.clear_alert_history():
+                    st.success("Alert history cleared!")
+                    st.rerun()
+        
+        # Display alert history
+        alert_history = email_manager.get_alert_history(limit)
+        
+        if alert_history:
+            st.markdown("**Recent Alerts**")
+            for alert in alert_history:
+                timestamp = alert['timestamp'][:19]  # Remove microseconds
+                alert_type = alert['alert_type'].replace('_', ' ').title()
+                symbol = alert['symbol']
+                priority = alert['priority'].title()
+                
+                priority_color = {
+                    'Critical': '🔴',
+                    'High': '🟠', 
+                    'Medium': '🟡',
+                    'Low': '🟢'
+                }
+                
+                priority_emoji = priority_color.get(priority, '⚪')
+                
+                st.markdown(f"""
+                <div style="background-color: #2d2d2d; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0;">
+                    <p><strong>{priority_emoji} {alert_type}</strong> - {symbol}</p>
+                    <p><small>Time: {timestamp} | Priority: {priority}</small></p>
+                    <p><small>Subject: {alert.get('subject', 'N/A')}</small></p>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No alert history available.")
+        
+        # Alert statistics
+        if alert_history:
+            st.markdown("**Alert Statistics**")
+            alert_types = {}
+            priorities = {}
+            
+            for alert in alert_history:
+                alert_type = alert['alert_type']
+                priority = alert['priority']
+                
+                alert_types[alert_type] = alert_types.get(alert_type, 0) + 1
+                priorities[priority] = priorities.get(priority, 0) + 1
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**By Type**")
+                for alert_type, count in alert_types.items():
+                    st.write(f"• {alert_type.replace('_', ' ').title()}: {count}")
+            
+            with col2:
+                st.markdown("**By Priority**")
+                for priority, count in priorities.items():
+                    st.write(f"• {priority.title()}: {count}")
     
     def fetch_news(self):
         """Fetch and display filtered Indian news articles."""
