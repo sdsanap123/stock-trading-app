@@ -211,43 +211,52 @@ class StreamlitTradingApp:
             st.error(f"Error initializing components: {str(e)}")
     
     def load_saved_api_key(self, key_type: str) -> str:
-        """Load saved API key from file."""
+        """Load saved API key from Streamlit secrets or environment variables."""
         try:
+            # Try Streamlit secrets first (for deployment)
+            if key_type == 'groq':
+                return st.secrets.get('GROQ_API_KEY', '')
+            elif key_type == 'gemini':
+                return st.secrets.get('GEMINI_API_KEY', '')
+            
+            # Fallback to environment variables
             import os
-            key_file = f".{key_type}_api_key.txt"
-            if os.path.exists(key_file):
-                with open(key_file, 'r') as f:
-                    return f.read().strip()
-            return ""
+            if key_type == 'groq':
+                return os.getenv('GROQ_API_KEY', '')
+            elif key_type == 'gemini':
+                return os.getenv('GEMINI_API_KEY', '')
+                
         except Exception as e:
             logger.warning(f"Could not load saved {key_type} API key: {str(e)}")
             return ""
     
     def save_api_key(self, key_type: str, api_key: str) -> bool:
-        """Save API key to file."""
+        """Save API key to session state (for local development only)."""
         try:
-            import os
-            key_file = f".{key_type}_api_key.txt"
-            with open(key_file, 'w') as f:
-                f.write(api_key)
-            logger.info(f"Saved {key_type} API key to file")
+            # For deployment, API keys should be set via environment variables or Streamlit secrets
+            # This method is only for local development convenience
+            if key_type == 'groq':
+                st.session_state.saved_groq_key = api_key
+            elif key_type == 'gemini':
+                st.session_state.saved_gemini_key = api_key
+            logger.info(f"Saved {key_type} API key to session state")
             return True
         except Exception as e:
             logger.error(f"Could not save {key_type} API key: {str(e)}")
             return False
     
     def delete_saved_api_key(self, key_type: str) -> bool:
-        """Delete saved API key file."""
+        """Clear saved API key from session state."""
         try:
-            import os
-            key_file = f".{key_type}_api_key.txt"
-            if os.path.exists(key_file):
-                os.remove(key_file)
-                logger.info(f"Deleted saved {key_type} API key")
-                return True
-            return False
+            # Clear from session state
+            if key_type == 'groq':
+                st.session_state.saved_groq_key = ""
+            elif key_type == 'gemini':
+                st.session_state.saved_gemini_key = ""
+            logger.info(f"Cleared {key_type} API key from session state")
+            return True
         except Exception as e:
-            logger.error(f"Could not delete {key_type} API key: {str(e)}")
+            logger.error(f"Could not clear {key_type} API key: {str(e)}")
             return False
     
     def run(self):
