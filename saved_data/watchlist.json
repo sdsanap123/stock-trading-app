@@ -1,0 +1,44 @@
+[
+    {
+        "symbol": "SUNPHARMA",
+        "company_name": "",
+        "entry_price": 1659.0,
+        "current_price": 1659.0,
+        "target_price": 1807.56345,
+        "stop_loss": 1526.28,
+        "recommendation": "BUY",
+        "confidence": 64.85,
+        "added_date": "2025-10-17T08:52:28.870249",
+        "last_updated": "2025-10-17T08:52:36.838446",
+        "status": "ACTIVE",
+        "notes": ""
+    },
+    {
+        "symbol": "ONGC",
+        "company_name": "",
+        "entry_price": 248.35000610351562,
+        "current_price": 248.35000610351562,
+        "target_price": 268.76437660522464,
+        "stop_loss": 228.48200561523439,
+        "recommendation": "BUY",
+        "confidence": 62.4,
+        "added_date": "2025-10-17T08:52:33.572377",
+        "last_updated": "2025-10-17T08:52:36.838450",
+        "status": "ACTIVE",
+        "notes": ""
+    },
+    {
+        "symbol": "NTPC",
+        "company_name": "",
+        "entry_price": 341.5,
+        "current_price": 341.5,
+        "target_price": 367.52230000000003,
+        "stop_loss": 314.18,
+        "recommendation": "BUY",
+        "confidence": 60.4,
+        "added_date": "2025-10-17T08:52:36.838426",
+        "last_updated": "2025-10-17T08:52:36.838452",
+        "status": "ACTIVE",
+        "notes": ""
+    }
+]
