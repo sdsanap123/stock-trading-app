@@ -9,7 +9,7 @@
         "recommendation": "BUY",
         "confidence": 60.4,
         "added_date": "2025-10-17T09:42:04.904127",
-        "last_updated": "2025-10-17T10:08:33.389608",
+        "last_updated": "2025-10-24T14:45:02.783346",
         "status": "ACTIVE",
         "notes": ""
     },
@@ -23,7 +23,7 @@
         "recommendation": "BUY",
         "confidence": 59.14999999999999,
         "added_date": "2025-10-17T09:42:06.154165",
-        "last_updated": "2025-10-17T10:08:33.389612",
+        "last_updated": "2025-10-24T14:45:02.783357",
         "status": "ACTIVE",
         "notes": ""
     },
@@ -37,35 +37,7 @@
         "recommendation": "BUY",
         "confidence": 64.85,
         "added_date": "2025-10-17T09:42:07.187514",
-        "last_updated": "2025-10-17T10:08:33.389614",
-        "status": "ACTIVE",
-        "notes": ""
-    },
-    {
-        "symbol": "IRCON",
-        "company_name": "",
-        "entry_price": 173.1300048828125,
-        "current_price": 170.77999877929688,
-        "target_price": 185.9589382446289,
-        "stop_loss": 159.2796044921875,
-        "recommendation": "BUY",
-        "confidence": 59.699999999999996,
-        "added_date": "2025-10-17T09:42:08.826450",
-        "last_updated": "2025-10-17T10:08:33.389617",
-        "status": "ACTIVE",
-        "notes": ""
-    },
-    {
-        "symbol": "INFY",
-        "company_name": "",
-        "entry_price": 1444.800048828125,
-        "current_price": 1444.800048828125,
-        "target_price": 1589.6773737243655,
-        "stop_loss": 1329.216044921875,
-        "recommendation": "BUY",
-        "confidence": 68.425,
-        "added_date": "2025-10-17T10:08:32.758451",
-        "last_updated": "2025-10-17T10:08:33.389619",
+        "last_updated": "2025-10-24T14:45:02.783365",
         "status": "ACTIVE",
         "notes": ""
     },
@@ -79,7 +51,7 @@
         "recommendation": "BUY",
         "confidence": 67.225,
         "added_date": "2025-10-17T10:08:33.389585",
-        "last_updated": "2025-10-17T10:08:33.389622",
+        "last_updated": "2025-10-24T14:45:02.783371",
         "status": "ACTIVE",
         "notes": ""
     }
