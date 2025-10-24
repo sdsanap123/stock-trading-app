@@ -24,9 +24,10 @@ def main():
         
         subprocess.run([
             sys.executable, "-m", "streamlit", "run", "app.py",
-            "--server.port=8501",
-            "--server.address=localhost",
-            "--browser.gatherUsageStats=false"
+            "--server.port=5000",
+            "--server.address=0.0.0.0",
+            "--browser.gatherUsageStats=false",
+            "--server.headless=true"
         ])
         
     except KeyboardInterrupt:
