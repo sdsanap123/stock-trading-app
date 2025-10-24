@@ -406,16 +406,17 @@ class ExpandableUI:
             action_col1, action_col2, action_col3 = st.columns(3)
             
             with action_col1:
-                if st.button(f"📊 Update Price", key=f"update_{item.get('symbol')}"):
-                    st.info("Price update functionality will be implemented")
+                if st.button(f"📊 Update Price", key=f"update_{item.get('symbol')}_watchlist"):
+                    st.session_state[f"update_price_{item.get('symbol')}"] = True
             
             with action_col2:
-                if st.button(f"✏️ Edit", key=f"edit_{item.get('symbol')}"):
-                    st.info("Edit functionality will be implemented")
+                if st.button(f"✏️ Edit Notes", key=f"edit_{item.get('symbol')}_watchlist"):
+                    st.session_state[f"edit_notes_{item.get('symbol')}"] = True
             
             with action_col3:
-                if st.button(f"🗑️ Remove", key=f"remove_{item.get('symbol')}"):
-                    st.info("Remove functionality will be implemented")
+                if st.button(f"🗑️ Delete", key=f"remove_{item.get('symbol')}_watchlist", type="primary"):
+                    st.session_state[f"delete_from_watchlist_{item.get('symbol')}"] = True
+                    st.rerun()
             
         except Exception as e:
             logger.error(f"Error displaying watchlist details: {str(e)}")

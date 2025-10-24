@@ -1273,6 +1273,22 @@ class StreamlitTradingApp:
         """Watchlist tab."""
         st.header("👀 Watchlist Management")
         
+        # Check for delete actions from watchlist details
+        for key in list(st.session_state.keys()):
+            if key.startswith('delete_from_watchlist_'):
+                symbol_to_delete = key.replace('delete_from_watchlist_', '')
+                # Remove the stock from watchlist
+                st.session_state.watchlist = [
+                    item for item in st.session_state.watchlist 
+                    if item.get('symbol') != symbol_to_delete
+                ]
+                # Auto-save watchlist
+                self._auto_save_watchlist()
+                # Clear the session state flag
+                del st.session_state[key]
+                st.success(f"✅ Deleted {symbol_to_delete} from watchlist!")
+                st.rerun()
+        
         col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
         
         with col1:
