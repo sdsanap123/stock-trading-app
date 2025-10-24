@@ -16,6 +16,103 @@ class ExpandableUI:
     """Reusable expandable UI components for data display."""
     
     @staticmethod
+    def display_news_row(article: Dict, index: int) -> bool:
+        """Display a news article in an expandable row format."""
+        try:
+            title = article.get('title', 'No title')
+            source = article.get('source', 'Unknown')
+            published = article.get('publishedAt', 'Unknown')
+            sentiment = article.get('sentiment', 0)
+            
+            # Truncate title for display
+            display_title = title[:60] + "..." if len(title) > 60 else title
+            
+            # Format published date
+            try:
+                if published and published != 'Unknown':
+                    # Try to parse and format the date
+                    from datetime import datetime
+                    if 'T' in published:
+                        date_obj = datetime.fromisoformat(published.replace('Z', '+00:00'))
+                        formatted_date = date_obj.strftime('%m/%d %H:%M')
+                    else:
+                        formatted_date = published[:10]
+                else:
+                    formatted_date = 'N/A'
+            except:
+                formatted_date = published[:10] if published else 'N/A'
+            
+            # Create main row
+            col1, col2, col3, col4, col5 = st.columns([3, 1.5, 1, 1, 0.8])
+            
+            with col1:
+                st.write(f"**{display_title}**")
+            
+            with col2:
+                st.write(source)
+            
+            with col3:
+                st.write(formatted_date)
+            
+            with col4:
+                # Sentiment with color
+                if sentiment > 0.1:
+                    st.markdown(f'<span style="color: #28a745;">+{sentiment:.2f}</span>', unsafe_allow_html=True)
+                elif sentiment < -0.1:
+                    st.markdown(f'<span style="color: #dc3545;">{sentiment:.2f}</span>', unsafe_allow_html=True)
+                else:
+                    st.write(f"{sentiment:.2f}")
+            
+            with col5:
+                # Use Streamlit's built-in expander
+                with st.expander("➕"):
+                    ExpandableUI._display_news_details(article)
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error displaying news row: {str(e)}")
+            return False
+    
+    @staticmethod
+    def _display_news_details(article: Dict):
+        """Display detailed news article information."""
+        try:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**📰 Article Details**")
+                st.write(f"• **Title:** {article.get('title', 'N/A')}")
+                st.write(f"• **Source:** {article.get('source', 'N/A')}")
+                st.write(f"• **Published:** {article.get('publishedAt', 'N/A')}")
+                st.write(f"• **URL:** {article.get('url', 'N/A')}")
+                
+                # Sentiment analysis
+                sentiment = article.get('sentiment', 0)
+                if sentiment > 0.1:
+                    st.markdown(f"• **Sentiment:** <span style='color: #28a745;'>Positive ({sentiment:.3f})</span>", unsafe_allow_html=True)
+                elif sentiment < -0.1:
+                    st.markdown(f"• **Sentiment:** <span style='color: #dc3545;'>Negative ({sentiment:.3f})</span>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"• **Sentiment:** <span style='color: #ffc107;'>Neutral ({sentiment:.3f})</span>", unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown("**📝 Content**")
+                description = article.get('description', 'No description available')
+                if description:
+                    st.write(description)
+                else:
+                    st.write("No description available")
+            
+            # Full article link
+            if article.get('url'):
+                st.markdown("**🔗 Full Article**")
+                st.markdown(f"[Read Full Article]({article['url']})")
+            
+        except Exception as e:
+            logger.error(f"Error displaying news details: {str(e)}")
+    
+    @staticmethod
     def display_recommendation_row(rec: Dict, index: int, show_actions: bool = True) -> bool:
         """Display a recommendation in an expandable row format."""
         try:
@@ -38,8 +135,8 @@ class ExpandableUI:
             except:
                 formatted_date = created_at[:19] if created_at else 'N/A'
             
-            # Create main row
-            col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1.5, 1.5, 1.5, 1])
+            # Create main row - more compact with unique key
+            col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1.5, 1, 1, 1, 0.8, 0.8])
             
             with col1:
                 st.write(f"**{symbol}**")
@@ -68,16 +165,19 @@ class ExpandableUI:
                 st.caption("Stop Loss")
             
             with col6:
-                # Expandable button
-                expand_key = f"expand_rec_{index}_{symbol}"
-                expanded = st.button("➕", key=expand_key, help="Click to expand details")
-            
-            # Display expanded content if button was clicked
-            if expanded:
-                with st.expander(f"📊 Detailed Analysis for {symbol}", expanded=True):
+                # Use Streamlit's built-in expander
+                with st.expander("➕"):
                     ExpandableUI._display_recommendation_details(rec)
             
-            return expanded
+            with col7:
+                # Add to watchlist button
+                if show_actions:
+                    watchlist_key = f"add_watchlist_{index}_{symbol}"
+                    if st.button("👀", key=watchlist_key, help="Add to watchlist"):
+                        # This will be handled by the calling function
+                        st.session_state[f"add_to_watchlist_{index}"] = True
+            
+            return False
             
         except Exception as e:
             logger.error(f"Error displaying recommendation row: {str(e)}")
@@ -184,8 +284,8 @@ class ExpandableUI:
             except:
                 formatted_date = added_date[:10] if added_date else 'N/A'
             
-            # Create main row
-            col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 1.5, 1.5, 1.5, 1.5, 1.5, 1])
+            # Create main row - more compact
+            col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8])
             
             with col1:
                 st.write(f"**{symbol}**")
@@ -229,16 +329,11 @@ class ExpandableUI:
                     st.write(f"📊 {status}")
             
             with col7:
-                # Expandable button
-                expand_key = f"expand_watch_{index}_{symbol}"
-                expanded = st.button("➕", key=expand_key, help="Click to expand details")
-            
-            # Display expanded content if button was clicked
-            if expanded:
-                with st.expander(f"👀 Watchlist Details for {symbol}", expanded=True):
+                # Use Streamlit's built-in expander
+                with st.expander("➕"):
                     ExpandableUI._display_watchlist_details(item)
             
-            return expanded
+            return False
             
         except Exception as e:
             logger.error(f"Error displaying watchlist row: {str(e)}")
@@ -350,8 +445,8 @@ class ExpandableUI:
             except:
                 formatted_date = created_at[:19] if created_at else 'N/A'
             
-            # Create main row
-            col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 1.5, 1.5, 1.5, 1.5, 1.5, 1])
+            # Create main row - more compact
+            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8, 0.8])
             
             with col1:
                 st.write(f"**{symbol}**")
@@ -386,16 +481,19 @@ class ExpandableUI:
                 st.caption("Risk-Reward")
             
             with col7:
-                # Expandable button
-                expand_key = f"expand_swing_{index}_{symbol}"
-                expanded = st.button("➕", key=expand_key, help="Click to expand details")
-            
-            # Display expanded content if button was clicked
-            if expanded:
-                with st.expander(f"📈 Swing Strategy Details for {symbol}", expanded=True):
+                # Use Streamlit's built-in expander
+                with st.expander("➕"):
                     ExpandableUI._display_swing_strategy_details(strategy)
             
-            return expanded
+            with col8:
+                # Add to watchlist button
+                if show_actions:
+                    watchlist_key = f"add_swing_watchlist_{index}_{symbol}"
+                    if st.button("👀", key=watchlist_key, help="Add to watchlist"):
+                        # This will be handled by the calling function
+                        st.session_state[f"add_swing_to_watchlist_{index}"] = True
+            
+            return False
             
         except Exception as e:
             logger.error(f"Error displaying swing strategy row: {str(e)}")

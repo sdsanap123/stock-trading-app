@@ -97,7 +97,21 @@ class DataPersistenceManager:
         try:
             if os.path.exists(self.recommendations_file):
                 with open(self.recommendations_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    content = f.read().strip()
+                    if not content:
+                        return {}
+                    return json.loads(content)
+            return {}
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in recommendations file: {str(e)}")
+            # Try to backup and recreate the file
+            try:
+                backup_file = self.recommendations_file + '.backup'
+                if os.path.exists(self.recommendations_file):
+                    os.rename(self.recommendations_file, backup_file)
+                logger.info(f"Backed up corrupted file to {backup_file}")
+            except Exception as backup_error:
+                logger.error(f"Failed to backup corrupted file: {str(backup_error)}")
             return {}
         except Exception as e:
             logger.error(f"Error loading recommendations: {str(e)}")
@@ -108,7 +122,21 @@ class DataPersistenceManager:
         try:
             if os.path.exists(self.watchlist_file):
                 with open(self.watchlist_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    content = f.read().strip()
+                    if not content:
+                        return []
+                    return json.loads(content)
+            return []
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in watchlist file: {str(e)}")
+            # Try to backup and recreate the file
+            try:
+                backup_file = self.watchlist_file + '.backup'
+                if os.path.exists(self.watchlist_file):
+                    os.rename(self.watchlist_file, backup_file)
+                logger.info(f"Backed up corrupted file to {backup_file}")
+            except Exception as backup_error:
+                logger.error(f"Failed to backup corrupted file: {str(backup_error)}")
             return []
         except Exception as e:
             logger.error(f"Error loading watchlist: {str(e)}")
@@ -119,7 +147,21 @@ class DataPersistenceManager:
         try:
             if os.path.exists(self.swing_strategies_file):
                 with open(self.swing_strategies_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    content = f.read().strip()
+                    if not content:
+                        return {}
+                    return json.loads(content)
+            return {}
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in swing strategies file: {str(e)}")
+            # Try to backup and recreate the file
+            try:
+                backup_file = self.swing_strategies_file + '.backup'
+                if os.path.exists(self.swing_strategies_file):
+                    os.rename(self.swing_strategies_file, backup_file)
+                logger.info(f"Backed up corrupted file to {backup_file}")
+            except Exception as backup_error:
+                logger.error(f"Failed to backup corrupted file: {str(backup_error)}")
             return {}
         except Exception as e:
             logger.error(f"Error loading swing strategies: {str(e)}")
@@ -128,26 +170,84 @@ class DataPersistenceManager:
     def _save_recommendations(self):
         """Save recommendations to file."""
         try:
+            # Convert numpy types to native Python types for JSON serialization
+            serializable_data = self._convert_to_serializable(self.recommendations)
+            # Clean up problematic characters in text fields
+            serializable_data = self._clean_text_fields(serializable_data)
             with open(self.recommendations_file, 'w', encoding='utf-8') as f:
-                json.dump(self.recommendations, f, indent=4, ensure_ascii=False)
+                json.dump(serializable_data, f, indent=4, ensure_ascii=False)
         except Exception as e:
             logger.error(f"Error saving recommendations: {str(e)}")
     
     def _save_watchlist(self):
         """Save watchlist to file."""
         try:
+            # Convert numpy types to native Python types for JSON serialization
+            serializable_data = self._convert_to_serializable(self.watchlist)
+            # Clean up problematic characters in text fields
+            serializable_data = self._clean_text_fields(serializable_data)
             with open(self.watchlist_file, 'w', encoding='utf-8') as f:
-                json.dump(self.watchlist, f, indent=4, ensure_ascii=False)
+                json.dump(serializable_data, f, indent=4, ensure_ascii=False)
         except Exception as e:
             logger.error(f"Error saving watchlist: {str(e)}")
     
     def _save_swing_strategies(self):
         """Save swing strategies to file."""
         try:
+            # Convert numpy types to native Python types for JSON serialization
+            serializable_data = self._convert_to_serializable(self.swing_strategies)
+            # Clean up problematic characters in text fields
+            serializable_data = self._clean_text_fields(serializable_data)
             with open(self.swing_strategies_file, 'w', encoding='utf-8') as f:
-                json.dump(self.swing_strategies, f, indent=4, ensure_ascii=False)
+                json.dump(serializable_data, f, indent=4, ensure_ascii=False)
         except Exception as e:
             logger.error(f"Error saving swing strategies: {str(e)}")
+    
+    def _convert_to_serializable(self, obj):
+        """Convert numpy types and other non-serializable objects to JSON serializable types."""
+        import numpy as np
+        
+        if isinstance(obj, dict):
+            return {key: self._convert_to_serializable(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_to_serializable(item) for item in obj]
+        elif isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif hasattr(obj, 'item'):  # For numpy scalars
+            return obj.item()
+        else:
+            return obj
+    
+    def _clean_text_fields(self, obj):
+        """Clean problematic characters from text fields to prevent JSON parsing issues."""
+        import re
+        
+        if isinstance(obj, dict):
+            cleaned_dict = {}
+            for key, value in obj.items():
+                if isinstance(value, str):
+                    # Remove or replace problematic characters
+                    cleaned_value = re.sub(r'[^\x00-\x7F]+', '', value)  # Remove non-ASCII characters
+                    cleaned_value = cleaned_value.replace('\x00', '')  # Remove null bytes
+                    cleaned_value = cleaned_value.replace('\u0000', '')  # Remove Unicode null
+                    cleaned_dict[key] = cleaned_value
+                else:
+                    cleaned_dict[key] = self._clean_text_fields(value)
+            return cleaned_dict
+        elif isinstance(obj, list):
+            return [self._clean_text_fields(item) for item in obj]
+        elif isinstance(obj, str):
+            # Clean string values
+            cleaned = re.sub(r'[^\x00-\x7F]+', '', obj)  # Remove non-ASCII characters
+            cleaned = cleaned.replace('\x00', '')  # Remove null bytes
+            cleaned = cleaned.replace('\u0000', '')  # Remove Unicode null
+            return cleaned
+        else:
+            return obj
     
     def _cleanup_expired_data(self):
         """Remove expired recommendations (older than 7 days)."""
