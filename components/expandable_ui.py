@@ -12,6 +12,383 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+class ModalWindow:
+    """Custom modal window component for Streamlit."""
+    
+    @staticmethod
+    def create_modal(modal_id: str, title: str, content: str, width: str = "80%", height: str = "80%"):
+        """Create a modal window with HTML/CSS/JavaScript."""
+        modal_html = f"""
+        <div id="{modal_id}" class="modal" style="display: none;">
+            <div class="modal-content" style="width: {width}; height: {height};">
+                <div class="modal-header">
+                    <h2>{title}</h2>
+                    <span class="close" onclick="closeModal('{modal_id}')">&times;</span>
+                </div>
+                <div class="modal-body">
+                    {content}
+                </div>
+            </div>
+        </div>
+        
+        <style>
+        .modal {{
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }}
+        
+        .modal-content {{
+            background-color: #1e1e1e;
+            margin: 5% auto;
+            padding: 0;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            border: 1px solid #333;
+            max-height: 90vh;
+            overflow: hidden;
+        }}
+        
+        .modal-header {{
+            background-color: #2d2d2d;
+            padding: 15px 20px;
+            border-bottom: 1px solid #444;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        
+        .modal-header h2 {{
+            margin: 0;
+            color: #ffffff;
+            font-size: 1.5rem;
+        }}
+        
+        .close {{
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.3s;
+        }}
+        
+        .close:hover {{
+            color: #ffffff;
+        }}
+        
+        .modal-body {{
+            padding: 20px;
+            max-height: calc(90vh - 80px);
+            overflow-y: auto;
+            color: #ffffff;
+        }}
+        
+        .modal-body h3 {{
+            color: #4CAF50;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }}
+        
+        .modal-body p {{
+            margin: 8px 0;
+            line-height: 1.5;
+        }}
+        
+        .modal-body .metric {{
+            background-color: #2d2d2d;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 5px 0;
+            border-left: 3px solid #4CAF50;
+        }}
+        </style>
+        
+        <script>
+        function openModal(modalId) {{
+            document.getElementById(modalId).style.display = "block";
+            document.body.style.overflow = "hidden";
+        }}
+        
+        function closeModal(modalId) {{
+            document.getElementById(modalId).style.display = "none";
+            document.body.style.overflow = "auto";
+        }}
+        
+        // Close modal when clicking outside of it
+        window.onclick = function(event) {{
+            var modals = document.querySelectorAll('.modal');
+            modals.forEach(function(modal) {{
+                if (event.target == modal) {{
+                    modal.style.display = "none";
+                    document.body.style.overflow = "auto";
+                }}
+            }});
+        }}
+        </script>
+        """
+        return modal_html
+    
+    @staticmethod
+    def show_modal_button(button_text: str, modal_id: str, title: str, content: str):
+        """Show a button that opens a wide modal-like display."""
+        # Create a unique key for the button
+        button_key = f"modal_btn_{modal_id}"
+        
+        # Use Streamlit button with session state
+        if st.button(f"🔍 {button_text}", key=button_key, help="Click to view details in a wide popup"):
+            # Store the modal data in session state
+            st.session_state[f"show_modal_{modal_id}"] = True
+            st.session_state[f"modal_title_{modal_id}"] = title
+            st.session_state[f"modal_content_{modal_id}"] = content
+        
+        # Show wide modal if triggered
+        if st.session_state.get(f"show_modal_{modal_id}", False):
+            # Create a wide popup-like container
+            st.markdown("---")
+            
+            # Add custom CSS for popup styling
+            st.markdown("""
+            <style>
+            .popup-container {
+                background-color: #1e1e1e;
+                border: 2px solid #4CAF50;
+                border-radius: 10px;
+                padding: 20px;
+                margin: 10px 0;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            }
+            .popup-header {
+                background-color: #2d2d2d;
+                padding: 15px;
+                border-radius: 8px;
+                margin-bottom: 15px;
+                border-left: 4px solid #4CAF50;
+            }
+            .popup-content {
+                background-color: #2a2a2a;
+                padding: 15px;
+                border-radius: 8px;
+                color: white;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Create the popup container
+            with st.container():
+                st.markdown(f"""
+                <div class="popup-container">
+                    <div class="popup-header">
+                        <h2 style="color: #4CAF50; margin: 0;">{title}</h2>
+                    </div>
+                    <div class="popup-content">
+                        {content}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Close button
+                col1, col2, col3 = st.columns([1, 1, 1])
+                with col2:
+                    if st.button("❌ Close Details", key=f"close_{modal_id}", help="Close this popup"):
+                        st.session_state[f"show_modal_{modal_id}"] = False
+                        st.rerun()
+            
+            st.markdown("---")
+    
+    @staticmethod
+    def show_full_width_modal(button_text: str, modal_id: str, title: str, content: str):
+        """Show a full-width modal that takes up most of the screen."""
+        # Create a unique key for the button
+        button_key = f"full_modal_btn_{modal_id}"
+        
+        # Use Streamlit button with session state
+        if st.button(f"🔍 {button_text}", key=button_key, help="Click to view details in full width"):
+            # Store the modal data in session state
+            st.session_state[f"show_full_modal_{modal_id}"] = True
+            st.session_state[f"full_modal_title_{modal_id}"] = title
+            st.session_state[f"full_modal_content_{modal_id}"] = content
+        
+        # Show full-width modal if triggered
+        if st.session_state.get(f"show_full_modal_{modal_id}", False):
+            # Create a full-width popup-like container
+            st.markdown("---")
+            
+            # Add custom CSS for full-width popup styling
+            st.markdown("""
+            <style>
+            .full-popup-container {
+                background-color: #1e1e1e;
+                border: 3px solid #4CAF50;
+                border-radius: 15px;
+                padding: 25px;
+                margin: 15px 0;
+                box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+                width: 100%;
+            }
+            .full-popup-header {
+                background-color: #2d2d2d;
+                padding: 20px;
+                border-radius: 10px;
+                margin-bottom: 20px;
+                border-left: 6px solid #4CAF50;
+                text-align: center;
+            }
+            .full-popup-content {
+                background-color: #2a2a2a;
+                padding: 20px;
+                border-radius: 10px;
+                color: white;
+                font-size: 16px;
+                line-height: 1.6;
+            }
+            .close-button {
+                background-color: #dc3545;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 16px;
+                margin: 10px;
+            }
+            .close-button:hover {
+                background-color: #c82333;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Create the full-width popup container
+            with st.container():
+                st.markdown(f"""
+                <div class="full-popup-container">
+                    <div class="full-popup-header">
+                        <h1 style="color: #4CAF50; margin: 0; font-size: 2rem;">{title}</h1>
+                    </div>
+                    <div class="full-popup-content">
+                        {content}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Close button
+                col1, col2, col3 = st.columns([1, 2, 1])
+                with col2:
+                    if st.button("❌ Close Full Details", key=f"close_full_{modal_id}", help="Close this full-width popup", type="primary"):
+                        st.session_state[f"show_full_modal_{modal_id}"] = False
+                        st.rerun()
+            
+            st.markdown("---")
+    
+    @staticmethod
+    def show_popup_window(button_text: str, modal_id: str, title: str, content: str):
+        """Show a button that opens a new browser window popup."""
+        # Create a unique key for the button
+        button_key = f"popup_btn_{modal_id}"
+        
+        # Create HTML content for popup window
+        popup_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>{title}</title>
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    background-color: #1e1e1e;
+                    color: white;
+                    margin: 0;
+                    padding: 20px;
+                }}
+                .container {{
+                    max-width: 1200px;
+                    margin: 0 auto;
+                    background-color: #2d2d2d;
+                    padding: 20px;
+                    border-radius: 10px;
+                    border: 2px solid #4CAF50;
+                }}
+                .header {{
+                    background-color: #4CAF50;
+                    color: white;
+                    padding: 15px;
+                    border-radius: 8px;
+                    margin-bottom: 20px;
+                    text-align: center;
+                }}
+                .content {{
+                    background-color: #2a2a2a;
+                    padding: 20px;
+                    border-radius: 8px;
+                    line-height: 1.6;
+                }}
+                .close-btn {{
+                    background-color: #dc3545;
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 5px;
+                    cursor: pointer;
+                    font-size: 16px;
+                    margin: 20px auto;
+                    display: block;
+                }}
+                .close-btn:hover {{
+                    background-color: #c82333;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>{title}</h1>
+                </div>
+                <div class="content">
+                    {content}
+                </div>
+                <button class="close-btn" onclick="window.close()">Close Window</button>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Encode the HTML content for URL
+        import base64
+        import urllib.parse
+        encoded_html = base64.b64encode(popup_html.encode()).decode()
+        
+        # Create the popup button with JavaScript
+        popup_script = f"""
+        <script>
+        function openPopup{modal_id}() {{
+            var popup = window.open('', 'popup_{modal_id}', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+            popup.document.write(atob('{encoded_html}'));
+            popup.document.close();
+        }}
+        </script>
+        <button onclick="openPopup{modal_id}()" 
+                style="background-color: #4CAF50; 
+                       color: white; 
+                       border: none; 
+                       padding: 8px 16px; 
+                       text-align: center; 
+                       text-decoration: none; 
+                       display: inline-block; 
+                       font-size: 14px; 
+                       margin: 4px 2px; 
+                       cursor: pointer; 
+                       border-radius: 4px;
+                       transition: background-color 0.3s;">
+            🪟 {button_text}
+        </button>
+        """
+        
+        st.markdown(popup_script, unsafe_allow_html=True)
+
 class ExpandableUI:
     """Reusable expandable UI components for data display."""
     
@@ -64,15 +441,77 @@ class ExpandableUI:
                     st.write(f"{sentiment:.2f}")
             
             with col5:
-                # Use Streamlit's built-in expander
-                with st.expander("➕"):
-                    ExpandableUI._display_news_details(article)
+                # Provide multiple viewing options
+                modal_id = f"news_modal_{index}"
+                modal_title = f"News Details - {article.get('title', 'Unknown')[:50]}..."
+                modal_content = ExpandableUI._get_news_details_html(article)
+                
+                # Show both full-width modal and popup window options
+                col5a, col5b = st.columns(2)
+                with col5a:
+                    ModalWindow.show_full_width_modal("📱 Wide View", modal_id, modal_title, modal_content)
+                with col5b:
+                    ModalWindow.show_popup_window("🪟 New Window", modal_id, modal_title, modal_content)
             
             return False
             
         except Exception as e:
             logger.error(f"Error displaying news row: {str(e)}")
             return False
+    
+    @staticmethod
+    def _get_news_details_html(article: Dict) -> str:
+        """Get HTML content for news details modal."""
+        try:
+            title = article.get('title', 'N/A')
+            source = article.get('source', 'N/A')
+            published = article.get('publishedAt', 'N/A')
+            url = article.get('url', 'N/A')
+            description = article.get('description', 'No description available')
+            sentiment = article.get('sentiment', 0)
+            
+            # Format sentiment
+            if sentiment > 0.1:
+                sentiment_html = f'<span style="color: #28a745;">Positive ({sentiment:.3f})</span>'
+            elif sentiment < -0.1:
+                sentiment_html = f'<span style="color: #dc3545;">Negative ({sentiment:.3f})</span>'
+            else:
+                sentiment_html = f'<span style="color: #ffc107;">Neutral ({sentiment:.3f})</span>'
+            
+            html_content = f"""
+            <div style="display: flex; gap: 20px;">
+                <div style="flex: 1;">
+                    <h3>📰 Article Details</h3>
+                    <div class="metric">
+                        <p><strong>Title:</strong> {title}</p>
+                        <p><strong>Source:</strong> {source}</p>
+                        <p><strong>Published:</strong> {published}</p>
+                        <p><strong>URL:</strong> <a href="{url}" target="_blank" style="color: #4CAF50;">{url}</a></p>
+                        <p><strong>Sentiment:</strong> {sentiment_html}</p>
+                    </div>
+                </div>
+                <div style="flex: 1;">
+                    <h3>📝 Content</h3>
+                    <div class="metric">
+                        <p>{description}</p>
+                    </div>
+                </div>
+            </div>
+            """
+            
+            if url and url != 'N/A':
+                html_content += f"""
+                <div style="margin-top: 20px;">
+                    <h3>🔗 Full Article</h3>
+                    <p><a href="{url}" target="_blank" style="color: #4CAF50; text-decoration: none; font-weight: bold;">Read Full Article →</a></p>
+                </div>
+                """
+            
+            return html_content
+            
+        except Exception as e:
+            logger.error(f"Error creating news details HTML: {str(e)}")
+            return "<p>Error loading details</p>"
     
     @staticmethod
     def _display_news_details(article: Dict):
@@ -165,9 +604,11 @@ class ExpandableUI:
                 st.caption("Stop Loss")
             
             with col6:
-                # Use Streamlit's built-in expander
-                with st.expander("➕"):
-                    ExpandableUI._display_recommendation_details(rec)
+                # Use full-width modal for better visibility
+                modal_id = f"rec_modal_{index}"
+                modal_title = f"Recommendation Details - {symbol}"
+                modal_content = ExpandableUI._get_recommendation_details_html(rec)
+                ModalWindow.show_full_width_modal("View Details", modal_id, modal_title, modal_content)
             
             with col7:
                 # Add to watchlist button
@@ -182,6 +623,135 @@ class ExpandableUI:
         except Exception as e:
             logger.error(f"Error displaying recommendation row: {str(e)}")
             return False
+    
+    @staticmethod
+    def _get_recommendation_details_html(rec: Dict) -> str:
+        """Get HTML content for recommendation details modal."""
+        try:
+            symbol = rec.get('symbol', 'N/A')
+            current_price = rec.get('current_price', 0)
+            target_price = rec.get('target_price', 0)
+            stop_loss = rec.get('stop_loss', 0)
+            confidence = rec.get('confidence', 0)
+            recommendation = rec.get('recommendation', 'N/A')
+            reasoning = rec.get('reasoning', '')
+            swing_plan = rec.get('swing_plan', {})
+            technical_data = rec.get('technical_data', {})
+            groq_analysis = rec.get('groq_analysis', {})
+            
+            # Calculate risk-reward ratio
+            risk_reward_html = ""
+            if current_price > 0 and target_price > 0 and stop_loss > 0:
+                potential_profit = target_price - current_price
+                potential_loss = current_price - stop_loss
+                if potential_loss > 0:
+                    risk_reward = potential_profit / potential_loss
+                    risk_reward_html = f"<p><strong>Risk-Reward Ratio:</strong> {risk_reward:.2f}:1</p>"
+            
+            # Recommendation color
+            rec_color = "#28a745" if recommendation == "BUY" else "#dc3545" if recommendation == "SELL" else "#ffc107"
+            
+            html_content = f"""
+            <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                <div style="flex: 1;">
+                    <h3>📊 Trading Details</h3>
+                    <div class="metric">
+                        <p><strong>Symbol:</strong> {symbol}</p>
+                        <p><strong>Current Price:</strong> ₹{current_price:.2f}</p>
+                        <p><strong>Target Price:</strong> ₹{target_price:.2f}</p>
+                        <p><strong>Stop Loss:</strong> ₹{stop_loss:.2f}</p>
+                        <p><strong>Confidence:</strong> {confidence:.1f}%</p>
+                        <p><strong>Recommendation:</strong> <span style="color: {rec_color}; font-weight: bold;">{recommendation}</span></p>
+                        {risk_reward_html}
+                    </div>
+                </div>
+                <div style="flex: 1;">
+                    <h3>📈 Swing Trading Plan</h3>
+                    <div class="metric">
+            """
+            
+            if swing_plan:
+                html_content += f"""
+                        <p><strong>Position Size:</strong> {swing_plan.get('position_size', 0)} shares</p>
+                        <p><strong>Investment:</strong> ₹{swing_plan.get('investment_amount', 0):,.0f}</p>
+                        <p><strong>Risk Amount:</strong> ₹{swing_plan.get('risk_amount', 0):,.0f}</p>
+                        <p><strong>Holding Period:</strong> {swing_plan.get('holding_period_days', 7)} days</p>
+                """
+            else:
+                html_content += "<p>No swing plan available</p>"
+            
+            html_content += """
+                    </div>
+                </div>
+            </div>
+            """
+            
+            # AI Reasoning
+            if reasoning:
+                html_content += f"""
+                <div style="margin-bottom: 20px;">
+                    <h3>💭 AI Reasoning</h3>
+                    <div class="metric">
+                        <p>{reasoning}</p>
+                    </div>
+                </div>
+                """
+            
+            # Technical Analysis
+            if technical_data:
+                html_content += """
+                <div style="margin-bottom: 20px;">
+                    <h3>📊 Technical Indicators</h3>
+                    <div style="display: flex; gap: 20px;">
+                        <div style="flex: 1;">
+                            <div class="metric">
+                """
+                html_content += f"""
+                                <p><strong>RSI:</strong> {technical_data.get('rsi', 0):.1f}</p>
+                                <p><strong>MACD:</strong> {technical_data.get('macd', 0):.4f}</p>
+                                <p><strong>SMA 20:</strong> ₹{technical_data.get('sma_20', 0):.2f}</p>
+                """
+                html_content += """
+                            </div>
+                        </div>
+                        <div style="flex: 1;">
+                            <div class="metric">
+                """
+                html_content += f"""
+                                <p><strong>Volume Ratio:</strong> {technical_data.get('volume_ratio_20', 0):.2f}</p>
+                                <p><strong>ATR:</strong> ₹{technical_data.get('atr', 0):.2f}</p>
+                                <p><strong>Bollinger Position:</strong> {technical_data.get('bb_position', 0):.2f}</p>
+                """
+                html_content += """
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """
+            
+            # Groq Analysis
+            if groq_analysis and groq_analysis.get('status') == 'success':
+                html_content += """
+                <div style="margin-bottom: 20px;">
+                    <h3>🤖 Groq AI Analysis</h3>
+                    <div class="metric">
+                """
+                html_content += f"""
+                        <p><strong>Sentiment:</strong> {groq_analysis.get('sentiment_label', 'N/A')}</p>
+                        <p><strong>Impact Level:</strong> {groq_analysis.get('impact_level', 'N/A')}</p>
+                        <p><strong>Price Impact:</strong> {groq_analysis.get('price_impact', 'N/A')}</p>
+                        <p><strong>Swing Potential:</strong> {groq_analysis.get('swing_trading_potential', 'N/A')}</p>
+                """
+                html_content += """
+                    </div>
+                </div>
+                """
+            
+            return html_content
+            
+        except Exception as e:
+            logger.error(f"Error creating recommendation details HTML: {str(e)}")
+            return "<p>Error loading details</p>"
     
     @staticmethod
     def _display_recommendation_details(rec: Dict):
@@ -329,15 +899,126 @@ class ExpandableUI:
                     st.write(f"📊 {status}")
             
             with col7:
-                # Use Streamlit's built-in expander
-                with st.expander("➕"):
-                    ExpandableUI._display_watchlist_details(item)
+                # Use full-width modal for better visibility
+                modal_id = f"watchlist_modal_{index}"
+                modal_title = f"Watchlist Details - {symbol}"
+                modal_content = ExpandableUI._get_watchlist_details_html(item)
+                ModalWindow.show_full_width_modal("View Details", modal_id, modal_title, modal_content)
             
             return False
             
         except Exception as e:
             logger.error(f"Error displaying watchlist row: {str(e)}")
             return False
+    
+    @staticmethod
+    def _get_watchlist_details_html(item: Dict) -> str:
+        """Get HTML content for watchlist details modal."""
+        try:
+            symbol = item.get('symbol', 'N/A')
+            entry_price = item.get('entry_price', 0)
+            current_price = item.get('current_price', 0)
+            target_price = item.get('target_price', 0)
+            stop_loss = item.get('stop_loss', 0)
+            status = item.get('status', 'N/A')
+            confidence = item.get('confidence', 0)
+            notes = item.get('notes', '')
+            
+            # Calculate P&L
+            pnl_percent = 0
+            pnl_amount = 0
+            if entry_price > 0:
+                pnl_percent = ((current_price - entry_price) / entry_price) * 100
+                pnl_amount = current_price - entry_price
+            
+            # Calculate distances
+            target_distance_html = ""
+            stop_distance_html = ""
+            if current_price > 0:
+                if target_price > 0:
+                    target_distance = ((target_price - current_price) / current_price) * 100
+                    target_distance_html = f"<p><strong>Distance to Target:</strong> {target_distance:.1f}%</p>"
+                
+                if stop_loss > 0:
+                    stop_distance = ((current_price - stop_loss) / current_price) * 100
+                    stop_distance_html = f"<p><strong>Distance to Stop Loss:</strong> {stop_distance:.1f}%</p>"
+            
+            # Risk-Reward calculation
+            risk_reward_html = ""
+            if target_price > 0 and stop_loss > 0 and entry_price > 0:
+                potential_profit = target_price - entry_price
+                potential_loss = entry_price - stop_loss
+                if potential_loss > 0:
+                    risk_reward = potential_profit / potential_loss
+                    risk_reward_html = f"<p><strong>Risk-Reward Ratio:</strong> {risk_reward:.2f}:1</p>"
+            
+            # P&L color
+            pnl_color = "#28a745" if pnl_percent > 0 else "#dc3545" if pnl_percent < 0 else "#ffc107"
+            
+            html_content = f"""
+            <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                <div style="flex: 1;">
+                    <h3>📊 Position Details</h3>
+                    <div class="metric">
+                        <p><strong>Symbol:</strong> {symbol}</p>
+                        <p><strong>Entry Price:</strong> ₹{entry_price:.2f}</p>
+                        <p><strong>Current Price:</strong> ₹{current_price:.2f}</p>
+                        <p><strong>Target Price:</strong> ₹{target_price:.2f}</p>
+                        <p><strong>Stop Loss:</strong> ₹{stop_loss:.2f}</p>
+                        {target_distance_html}
+                        {stop_distance_html}
+                    </div>
+                </div>
+                <div style="flex: 1;">
+                    <h3>📈 Performance Metrics</h3>
+                    <div class="metric">
+                        <p><strong>P&L Percentage:</strong> <span style="color: {pnl_color}; font-weight: bold;">{pnl_percent:.2f}%</span></p>
+                        <p><strong>P&L Amount:</strong> <span style="color: {pnl_color}; font-weight: bold;">₹{pnl_amount:.2f}</span></p>
+                        <p><strong>Status:</strong> {status}</p>
+                        <p><strong>Confidence:</strong> {confidence:.1f}%</p>
+                        {risk_reward_html}
+                    </div>
+                </div>
+            </div>
+            """
+            
+            # Notes section
+            if notes:
+                html_content += f"""
+                <div style="margin-bottom: 20px;">
+                    <h3>📝 Notes</h3>
+                    <div class="metric">
+                        <p>{notes}</p>
+                    </div>
+                </div>
+                """
+            
+            # Action buttons
+            html_content += """
+            <div style="margin-bottom: 20px;">
+                <h3>⚡ Actions</h3>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button onclick="alert('Update Price functionality will be implemented')" 
+                            style="background-color: #4CAF50; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                        📊 Update Price
+                    </button>
+                    <button onclick="alert('Edit Notes functionality will be implemented')" 
+                            style="background-color: #2196F3; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                        ✏️ Edit Notes
+                    </button>
+                    <button onclick="alert('Delete functionality will be implemented')" 
+                            style="background-color: #f44336; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                        🗑️ Delete
+                    </button>
+                </div>
+            </div>
+            """
+            
+            return html_content
+            
+        except Exception as e:
+            logger.error(f"Error creating watchlist details HTML: {str(e)}")
+            return "<p>Error loading details</p>"
     
     @staticmethod
     def _display_watchlist_details(item: Dict):
@@ -482,9 +1163,11 @@ class ExpandableUI:
                 st.caption("Risk-Reward")
             
             with col7:
-                # Use Streamlit's built-in expander
-                with st.expander("➕"):
-                    ExpandableUI._display_swing_strategy_details(strategy)
+                # Use full-width modal for better visibility
+                modal_id = f"swing_modal_{index}"
+                modal_title = f"Swing Strategy Details - {symbol}"
+                modal_content = ExpandableUI._get_swing_strategy_details_html(strategy)
+                ModalWindow.show_full_width_modal("View Details", modal_id, modal_title, modal_content)
             
             with col8:
                 # Add to watchlist button
@@ -499,6 +1182,119 @@ class ExpandableUI:
         except Exception as e:
             logger.error(f"Error displaying swing strategy row: {str(e)}")
             return False
+    
+    @staticmethod
+    def _get_swing_strategy_details_html(strategy: Dict) -> str:
+        """Get HTML content for swing strategy details modal."""
+        try:
+            symbol = strategy.get('symbol', 'N/A')
+            strategy_name = strategy.get('strategy_name', 'N/A')
+            entry_price = strategy.get('entry_price', 0)
+            take_profit = strategy.get('take_profit', 0)
+            stop_loss = strategy.get('stop_loss', 0)
+            holding_period = strategy.get('holding_period_days', 7)
+            position_size = strategy.get('position_size', 0)
+            investment_amount = strategy.get('investment_amount', 0)
+            risk_amount = strategy.get('risk_amount', 0)
+            risk_reward_ratio = strategy.get('risk_reward_ratio', 0)
+            confidence = strategy.get('confidence', 0)
+            status = strategy.get('status', 'N/A')
+            entry_date = strategy.get('entry_date', 'N/A')
+            created_at = strategy.get('created_at', 'N/A')
+            expected_exit_date = strategy.get('expected_exit_date', 'N/A')
+            
+            # Calculate days remaining
+            days_remaining_html = ""
+            try:
+                if expected_exit_date and expected_exit_date != 'N/A':
+                    exit_date = datetime.fromisoformat(expected_exit_date.replace('Z', '+00:00'))
+                    days_remaining = (exit_date - datetime.now()).days
+                    if days_remaining > 0:
+                        days_remaining_html = f"<p><strong>Days Remaining:</strong> {days_remaining}</p>"
+                    else:
+                        days_remaining_html = "<p><strong>Status:</strong> <span style='color: #dc3545;'>Expired</span></p>"
+            except:
+                days_remaining_html = "<p><strong>Days Remaining:</strong> N/A</p>"
+            
+            html_content = f"""
+            <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                <div style="flex: 1;">
+                    <h3>📊 Strategy Overview</h3>
+                    <div class="metric">
+                        <p><strong>Symbol:</strong> {symbol}</p>
+                        <p><strong>Strategy Name:</strong> {strategy_name}</p>
+                        <p><strong>Entry Price:</strong> ₹{entry_price:.2f}</p>
+                        <p><strong>Take Profit:</strong> ₹{take_profit:.2f}</p>
+                        <p><strong>Stop Loss:</strong> ₹{stop_loss:.2f}</p>
+                        <p><strong>Holding Period:</strong> {holding_period} days</p>
+                    </div>
+                </div>
+                <div style="flex: 1;">
+                    <h3>💰 Position Details</h3>
+                    <div class="metric">
+                        <p><strong>Position Size:</strong> {position_size} shares</p>
+                        <p><strong>Investment Amount:</strong> ₹{investment_amount:,.0f}</p>
+                        <p><strong>Risk Amount:</strong> ₹{risk_amount:,.0f}</p>
+                        <p><strong>Risk-Reward Ratio:</strong> {risk_reward_ratio:.2f}:1</p>
+                        <p><strong>Confidence:</strong> {confidence:.1f}%</p>
+                        <p><strong>Status:</strong> {status}</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <h3>📅 Timeline</h3>
+                <div style="display: flex; gap: 20px;">
+                    <div style="flex: 1;">
+                        <div class="metric">
+                            <p><strong>Entry Date:</strong> {entry_date[:10] if entry_date != 'N/A' else 'N/A'}</p>
+                            <p><strong>Created:</strong> {created_at[:19] if created_at != 'N/A' else 'N/A'}</p>
+                        </div>
+                    </div>
+                    <div style="flex: 1;">
+                        <div class="metric">
+                            <p><strong>Expected Exit:</strong> {expected_exit_date[:10] if expected_exit_date != 'N/A' else 'N/A'}</p>
+                            {days_remaining_html}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <h3>📋 Strategy Rules</h3>
+                <div class="metric">
+                    <p>• Hold for maximum 7 days</p>
+                    <p>• Stop loss at 8% below entry</p>
+                    <p>• Take profit at 15% above entry</p>
+                    <p>• Monitor daily for exit signals</p>
+                    <p>• Do not average down if trade goes against you</p>
+                </div>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <h3>⚡ Actions</h3>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button onclick="alert('Update Status functionality will be implemented')" 
+                            style="background-color: #4CAF50; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                        📊 Update Status
+                    </button>
+                    <button onclick="alert('Edit Strategy functionality will be implemented')" 
+                            style="background-color: #2196F3; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                        ✏️ Edit Strategy
+                    </button>
+                    <button onclick="alert('Remove Strategy functionality will be implemented')" 
+                            style="background-color: #f44336; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                        🗑️ Remove Strategy
+                    </button>
+                </div>
+            </div>
+            """
+            
+            return html_content
+            
+        except Exception as e:
+            logger.error(f"Error creating swing strategy details HTML: {str(e)}")
+            return "<p>Error loading details</p>"
     
     @staticmethod
     def _display_swing_strategy_details(strategy: Dict):

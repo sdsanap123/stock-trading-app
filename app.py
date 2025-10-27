@@ -53,6 +53,7 @@ from components.notification_settings import NotificationSettingsManager, Notifi
 from components.data_persistence import DataPersistenceManager
 from components.expandable_ui import ExpandableUI
 from components.scheduled_analysis import ScheduledAnalysis
+from components.swing_performance_tracker import SwingPerformanceTracker
 
 # Page configuration
 st.set_page_config(
@@ -216,8 +217,12 @@ class StreamlitTradingApp:
             st.session_state.saved_gemini_key = self.load_saved_api_key('gemini')
         if 'cache_manager' not in st.session_state:
             st.session_state.cache_manager = CacheManager()
+        if 'swing_performance_tracker' not in st.session_state:
+            st.session_state.swing_performance_tracker = SwingPerformanceTracker(working_capital=100000)
         if 'swing_strategy' not in st.session_state:
-            st.session_state.swing_strategy = SwingTradingStrategy()
+            # Initialize swing strategy with adaptive parameters
+            adaptive_params = st.session_state.swing_performance_tracker.get_adaptive_parameters()
+            st.session_state.swing_strategy = SwingTradingStrategy(adaptive_parameters=adaptive_params)
         if 'email_notifications' not in st.session_state:
             st.session_state.email_notifications = EmailNotificationManager()
         if 'price_monitor' not in st.session_state:
@@ -325,6 +330,60 @@ class StreamlitTradingApp:
                 logger.info(f"Auto-saved {len(st.session_state.recommendations)} recommendations")
         except Exception as e:
             logger.error(f"Error auto-saving recommendations: {str(e)}")
+    
+    def _auto_save_buy_recommendations(self):
+        """Automatically save only BUY recommendations date-wise."""
+        try:
+            if st.session_state.get('recommendations'):
+                data_persistence = st.session_state.data_persistence
+                current_date = datetime.now().strftime("%Y-%m-%d")
+                
+                # Save BUY recommendations specifically
+                success = data_persistence.save_buy_recommendations(st.session_state.recommendations, current_date)
+                
+                if success:
+                    # Count BUY recommendations
+                    buy_count = 0
+                    for rec in st.session_state.recommendations:
+                        recommendation = rec.get('recommendation', '').upper()
+                        action = rec.get('action', '').upper()
+                        if recommendation == 'BUY' or action == 'BUY':
+                            buy_count += 1
+                    
+                    logger.info(f"Auto-saved {buy_count} BUY recommendations for {current_date}")
+                    return True
+                else:
+                    logger.error("Failed to save BUY recommendations")
+                    return False
+            else:
+                logger.info("No recommendations to save")
+                return True
+        except Exception as e:
+            logger.error(f"Error auto-saving BUY recommendations: {str(e)}")
+            return False
+    
+    def _auto_save_buy_recommendations_for_manual(self, recommendations: List[Dict]):
+        """Save BUY recommendations from manual analysis."""
+        try:
+            if recommendations:
+                data_persistence = st.session_state.data_persistence
+                current_date = datetime.now().strftime("%Y-%m-%d")
+                
+                # Save BUY recommendations specifically
+                success = data_persistence.save_buy_recommendations(recommendations, current_date)
+                
+                if success:
+                    logger.info(f"Auto-saved {len(recommendations)} BUY recommendation(s) from manual analysis for {current_date}")
+                    return True
+                else:
+                    logger.error("Failed to save manual BUY recommendations")
+                    return False
+            else:
+                logger.info("No manual recommendations to save")
+                return True
+        except Exception as e:
+            logger.error(f"Error auto-saving manual BUY recommendations: {str(e)}")
+            return False
     
     def _auto_save_watchlist(self):
         """Automatically save watchlist."""
@@ -1172,6 +1231,10 @@ class StreamlitTradingApp:
         
         # Swing strategies are automatically saved when generated
         
+        with col2:
+            if st.button("📊 Analyze Performance", type="secondary", key="analyze_swing_performance_btn"):
+                self.analyze_swing_performance()
+        
         with col3:
             if st.button("📊 View Saved", key="view_saved_swing"):
                 st.session_state.show_saved_swing_strategies = not st.session_state.get('show_saved_swing_strategies', False)
@@ -1180,6 +1243,9 @@ class StreamlitTradingApp:
         if st.session_state.get('show_saved_swing_strategies', False):
             self.display_saved_swing_strategies()
             return
+        
+        # Display current adaptive parameters
+        self.display_current_adaptive_parameters()
         
         if st.session_state.recommendations:
             # Extract swing strategies from recommendations
@@ -2237,6 +2303,7 @@ class StreamlitTradingApp:
                 
                 # Auto-save recommendations and swing strategies
                 self._auto_save_recommendations()
+                self._auto_save_buy_recommendations()  # Specifically save BUY recommendations date-wise
                 self._auto_save_swing_strategies()
                 
                 st.success(f"✅ Analysis complete! Generated {len(news_recommendations)} BUY recommendations. Data auto-saved for 7 days.")
@@ -2298,6 +2365,28 @@ class StreamlitTradingApp:
                     'groq_analysis': groq_analysis,
                     'gemini_analysis': gemini_analysis
                 }
+                
+                # Auto-save BUY recommendations if it's a BUY
+                if recommendation.get('action', '').upper() == 'BUY':
+                    # Create a single recommendation list for saving
+                    single_recommendation = [{
+                        'symbol': symbol,
+                        'company_name': technical_data.get('company_name', symbol),
+                        'current_price': technical_data.get('current_price', 0),
+                        'recommendation': 'BUY',
+                        'action': 'BUY',
+                        'confidence': recommendation.get('confidence', 0),
+                        'target_price': recommendation.get('target_price', 0),
+                        'stop_loss': recommendation.get('stop_loss', 0),
+                        'reasoning': recommendation.get('reasoning', ''),
+                        'technical_data': technical_data,
+                        'fundamental_data': fundamental_data,
+                        'groq_analysis': groq_analysis,
+                        'gemini_analysis': gemini_analysis
+                    }]
+                    
+                    # Save BUY recommendation date-wise
+                    self._auto_save_buy_recommendations_for_manual(single_recommendation)
                 
                 st.success(f"✅ Analysis complete for {symbol}")
                 
@@ -2453,6 +2542,202 @@ class StreamlitTradingApp:
                 
             except Exception as e:
                 st.error(f"❌ Error in watchlist learning analysis: {str(e)}")
+    
+    def analyze_swing_performance(self):
+        """Analyze swing trading performance and adjust parameters."""
+        try:
+            with st.spinner("📊 Analyzing swing trading performance..."):
+                # Get all swing strategies from data persistence
+                data_persistence = st.session_state.data_persistence
+                all_swing_strategies = data_persistence.get_swing_strategies()
+                
+                if not all_swing_strategies:
+                    st.warning("No swing strategies found to analyze")
+                    return
+                
+                # Flatten all strategies from all dates
+                all_strategies = []
+                for date_str, strategies in all_swing_strategies.items():
+                    all_strategies.extend(strategies)
+                
+                # Analyze performance
+                performance_tracker = st.session_state.swing_performance_tracker
+                analysis_results = performance_tracker.analyze_swing_performance(all_strategies)
+                
+                # Display results
+                self.display_swing_performance_results(analysis_results)
+                
+                # Update swing strategy with new parameters
+                adaptive_params = performance_tracker.get_adaptive_parameters()
+                st.session_state.swing_strategy = SwingTradingStrategy(adaptive_parameters=adaptive_params)
+                
+                st.success("✅ Swing trading parameters updated based on performance analysis!")
+                
+        except Exception as e:
+            st.error(f"❌ Error analyzing swing performance: {str(e)}")
+    
+    def display_swing_performance_results(self, results: Dict):
+        """Display swing trading performance analysis results."""
+        try:
+            st.subheader("📊 Swing Trading Performance Analysis")
+            
+            # Performance metrics
+            metrics = results.get('performance_metrics', {})
+            if metrics:
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Trades", metrics.get('total_trades', 0))
+                
+                with col2:
+                    win_rate = metrics.get('win_rate', 0)
+                    st.metric("Win Rate", f"{win_rate:.1f}%")
+                
+                with col3:
+                    avg_return = metrics.get('avg_return', 0)
+                    st.metric("Avg Return", f"{avg_return:.2f}%")
+                
+                with col4:
+                    current_capital = metrics.get('current_capital', 100000)
+                    st.metric("Current Capital", f"₹{current_capital:,.0f}")
+                
+                # Additional metrics
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    profit_factor = metrics.get('profit_factor', 0)
+                    st.metric("Profit Factor", f"{profit_factor:.2f}")
+                
+                with col2:
+                    sharpe_ratio = metrics.get('sharpe_ratio', 0)
+                    st.metric("Sharpe Ratio", f"{sharpe_ratio:.2f}")
+                
+                with col3:
+                    max_drawdown = metrics.get('max_drawdown', 0)
+                    st.metric("Max Drawdown", f"{max_drawdown:.1f}%")
+            
+            # Parameter adjustments
+            adjustments = results.get('adjustments_made', [])
+            if adjustments:
+                st.subheader("🔧 Parameter Adjustments Made")
+                for adjustment in adjustments:
+                    st.info(f"• {adjustment}")
+            else:
+                st.info("No parameter adjustments needed based on current performance")
+            
+            # Updated parameters
+            updated_params = results.get('updated_parameters', {})
+            if updated_params:
+                st.subheader("⚙️ Current Adaptive Parameters")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Stop Loss", f"{updated_params.get('stop_loss_percentage', 0)*100:.1f}%")
+                    st.metric("Take Profit", f"{updated_params.get('take_profit_percentage', 0)*100:.1f}%")
+                
+                with col2:
+                    st.metric("Position Size", f"{updated_params.get('position_size_percentage', 0)*100:.1f}%")
+                    st.metric("Confidence Threshold", f"{updated_params.get('confidence_threshold', 0):.1f}%")
+                
+                with col3:
+                    st.metric("Risk-Reward Ratio", f"{updated_params.get('risk_reward_ratio', 0):.1f}:1")
+                    st.metric("Max Drawdown", f"{updated_params.get('max_drawdown', 0)*100:.1f}%")
+            
+            # Strategy status summary
+            st.subheader("📈 Strategy Status Summary")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Completed Strategies", results.get('completed_strategies', 0))
+            
+            with col2:
+                st.metric("Active Strategies", results.get('active_strategies', 0))
+            
+            with col3:
+                st.metric("Expired Strategies", results.get('expired_strategies', 0))
+                
+        except Exception as e:
+            st.error(f"Error displaying performance results: {str(e)}")
+    
+    def display_current_adaptive_parameters(self):
+        """Display current adaptive parameters in swing tab."""
+        try:
+            performance_tracker = st.session_state.swing_performance_tracker
+            adaptive_params = performance_tracker.get_adaptive_parameters()
+            performance_summary = performance_tracker.get_performance_summary()
+            
+            st.subheader("⚙️ Current Adaptive Parameters (Realistic 7-Day Targets)")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                stop_loss = adaptive_params.get('stop_loss_percentage', 0)*100
+                st.metric(
+                    "Stop Loss", 
+                    f"{stop_loss:.1f}%",
+                    help=f"Realistic stop loss for 7-day swing trading (2-5% range)"
+                )
+            
+            with col2:
+                take_profit = adaptive_params.get('take_profit_percentage', 0)*100
+                st.metric(
+                    "Take Profit", 
+                    f"{take_profit:.1f}%",
+                    help=f"Realistic target for 7-day swing trading (1.5-3% range)"
+                )
+            
+            with col3:
+                position_size = adaptive_params.get('position_size_percentage', 0)*100
+                st.metric(
+                    "Position Size", 
+                    f"{position_size:.1f}%",
+                    help="Maximum position size per trade (5-15% range)"
+                )
+            
+            with col4:
+                confidence = adaptive_params.get('confidence_threshold', 0)
+                st.metric(
+                    "Confidence Threshold", 
+                    f"{confidence:.1f}%",
+                    help="Minimum confidence required for trades (50-75% range)"
+                )
+            
+            # Show realistic expectations
+            st.info(f"🎯 **Realistic 7-Day Swing Targets:** Stop Loss: {stop_loss:.1f}%, Take Profit: {take_profit:.1f}% (These are achievable targets for 7-day swing trading)")
+            
+            # Performance summary
+            metrics = performance_summary.get('performance_metrics', {})
+            if metrics and metrics.get('total_trades', 0) > 0:
+                st.subheader("📊 Performance Summary")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Trades", metrics.get('total_trades', 0))
+                
+                with col2:
+                    win_rate = metrics.get('win_rate', 0)
+                    st.metric("Win Rate", f"{win_rate:.1f}%")
+                
+                with col3:
+                    current_capital = metrics.get('current_capital', 100000)
+                    st.metric("Current Capital", f"₹{current_capital:,.0f}")
+                
+                with col4:
+                    last_updated = adaptive_params.get('last_updated', 'Never')
+                    if last_updated != 'Never':
+                        try:
+                            last_update_date = datetime.fromisoformat(last_updated)
+                            last_updated = last_update_date.strftime('%Y-%m-%d %H:%M')
+                        except:
+                            pass
+                    st.metric("Last Updated", last_updated)
+            else:
+                st.info("No performance data available yet. Run performance analysis after completing some trades.")
+                
+        except Exception as e:
+            st.error(f"Error displaying adaptive parameters: {str(e)}")
     
     def update_watchlist_prices(self):
         """Update watchlist prices."""

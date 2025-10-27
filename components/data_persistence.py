@@ -318,6 +318,111 @@ class DataPersistenceManager:
             logger.error(f"Error saving recommendations: {str(e)}")
             return False
     
+    def save_buy_recommendations(self, recommendations: List[Dict], date_str: str = None) -> bool:
+        """Save only BUY recommendations for a specific date."""
+        try:
+            if date_str is None:
+                date_str = datetime.now().strftime("%Y-%m-%d")
+            
+            # Filter only BUY recommendations
+            buy_recommendations = []
+            for rec in recommendations:
+                recommendation = rec.get('recommendation', '').upper()
+                action = rec.get('action', '').upper()
+                
+                # Check both 'recommendation' and 'action' fields for BUY
+                if recommendation == 'BUY' or action == 'BUY':
+                    buy_recommendations.append(rec)
+            
+            if not buy_recommendations:
+                logger.info(f"No BUY recommendations found for {date_str}")
+                return True
+            
+            # Convert BUY recommendations to serializable format
+            serializable_buy_recs = []
+            for rec in buy_recommendations:
+                # Create expiry date (7 days from now)
+                expiry_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+                
+                rec_data = {
+                    'symbol': rec.get('symbol', ''),
+                    'company_name': rec.get('company_name', ''),
+                    'current_price': rec.get('current_price', 0),
+                    'recommendation': 'BUY',  # Ensure it's marked as BUY
+                    'confidence': rec.get('confidence', 0),
+                    'target_price': rec.get('target_price', 0),
+                    'stop_loss': rec.get('stop_loss', 0),
+                    'reasoning': rec.get('reasoning', ''),
+                    'technical_data': rec.get('technical_data', {}),
+                    'fundamental_data': rec.get('fundamental_data', {}),
+                    'groq_analysis': rec.get('groq_analysis', {}),
+                    'gemini_analysis': rec.get('gemini_analysis', {}),
+                    'swing_plan': rec.get('swing_plan', {}),
+                    'swing_validation': rec.get('swing_validation', {}),
+                    'created_at': datetime.now().isoformat(),
+                    'expiry_date': expiry_date,
+                    'is_buy_recommendation': True  # Flag to identify BUY recommendations
+                }
+                serializable_buy_recs.append(rec_data)
+            
+            # Save BUY recommendations to datewise structure
+            if date_str not in self.recommendations:
+                self.recommendations[date_str] = []
+            
+            # Add BUY recommendations to existing recommendations for the date
+            self.recommendations[date_str].extend(serializable_buy_recs)
+            self._save_recommendations()
+            
+            logger.info(f"Saved {len(serializable_buy_recs)} BUY recommendations for {date_str}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving BUY recommendations: {str(e)}")
+            return False
+    
+    def get_buy_recommendations_by_date(self, date_str: str = None) -> List[Dict]:
+        """Get BUY recommendations for a specific date."""
+        try:
+            if date_str is None:
+                date_str = datetime.now().strftime("%Y-%m-%d")
+            
+            if date_str not in self.recommendations:
+                return []
+            
+            # Filter only BUY recommendations
+            buy_recommendations = []
+            for rec in self.recommendations[date_str]:
+                if rec.get('is_buy_recommendation', False) or rec.get('recommendation', '').upper() == 'BUY':
+                    buy_recommendations.append(rec)
+            
+            logger.info(f"Retrieved {len(buy_recommendations)} BUY recommendations for {date_str}")
+            return buy_recommendations
+            
+        except Exception as e:
+            logger.error(f"Error getting BUY recommendations for {date_str}: {str(e)}")
+            return []
+    
+    def get_all_buy_recommendations(self) -> Dict[str, List[Dict]]:
+        """Get all BUY recommendations organized by date."""
+        try:
+            buy_recommendations_by_date = {}
+            
+            for date_str, recommendations in self.recommendations.items():
+                buy_recs = []
+                for rec in recommendations:
+                    if rec.get('is_buy_recommendation', False) or rec.get('recommendation', '').upper() == 'BUY':
+                        buy_recs.append(rec)
+                
+                if buy_recs:
+                    buy_recommendations_by_date[date_str] = buy_recs
+            
+            logger.info(f"Retrieved BUY recommendations for {len(buy_recommendations_by_date)} dates")
+            return buy_recommendations_by_date
+            
+        except Exception as e:
+            logger.error(f"Error getting all BUY recommendations: {str(e)}")
+            return {}
+    
     def save_watchlist(self, watchlist: List[Dict]) -> bool:
         """Save watchlist data."""
         try:
@@ -389,6 +494,25 @@ class DataPersistenceManager:
         except Exception as e:
             logger.error(f"Error saving swing strategies: {str(e)}")
             return False
+    
+    def get_swing_strategies(self) -> Dict[str, List[Dict]]:
+        """Get all swing strategies organized by date."""
+        try:
+            return self.swing_strategies.copy()
+        except Exception as e:
+            logger.error(f"Error getting swing strategies: {str(e)}")
+            return {}
+    
+    def get_swing_strategies_by_date(self, date_str: str = None) -> List[Dict]:
+        """Get swing strategies for a specific date."""
+        try:
+            if date_str is None:
+                date_str = datetime.now().strftime("%Y-%m-%d")
+            
+            return self.swing_strategies.get(date_str, [])
+        except Exception as e:
+            logger.error(f"Error getting swing strategies for {date_str}: {str(e)}")
+            return []
     
     def get_recommendations_by_date(self, date_str: str = None) -> List[Dict]:
         """Get recommendations for a specific date."""
