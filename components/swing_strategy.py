@@ -14,25 +14,49 @@ logger = logging.getLogger(__name__)
 class SwingTradingStrategy:
     """7-day swing trading strategy implementation."""
     
-    def __init__(self):
+    def __init__(self, adaptive_parameters: Dict = None):
         """Initialize swing trading strategy."""
-        self.strategy_name = "7-Day Swing Strategy"
+        self.strategy_name = "7-Day Adaptive Swing Strategy"
         self.holding_period_days = 7
-        self.max_position_size = 0.1  # 10% of portfolio per position
-        self.stop_loss_percentage = 0.08  # 8% stop loss
-        self.take_profit_percentage = 0.15  # 15% take profit
-        self.risk_reward_ratio = 1.5  # Minimum risk-reward ratio
         
-        logger.info("7-Day Swing Trading Strategy initialized")
+        # Default parameters - Realistic for 7-day swing trading
+        self.max_position_size = 0.1  # 10% of portfolio per position
+        self.stop_loss_percentage = 0.03  # 3% stop loss (realistic for 7 days)
+        self.take_profit_percentage = 0.02  # 2% take profit (realistic for 7 days)
+        self.risk_reward_ratio = 0.67  # 2:3 risk-reward ratio (realistic)
+        self.confidence_threshold = 60.0  # Minimum confidence for trades
+        
+        # Apply adaptive parameters if provided
+        if adaptive_parameters:
+            self.max_position_size = adaptive_parameters.get('position_size_percentage', self.max_position_size)
+            self.stop_loss_percentage = adaptive_parameters.get('stop_loss_percentage', self.stop_loss_percentage)
+            self.take_profit_percentage = adaptive_parameters.get('take_profit_percentage', self.take_profit_percentage)
+            self.risk_reward_ratio = adaptive_parameters.get('risk_reward_ratio', self.risk_reward_ratio)
+            self.confidence_threshold = adaptive_parameters.get('confidence_threshold', self.confidence_threshold)
+        
+        logger.info(f"7-Day Adaptive Swing Strategy initialized with parameters: SL={self.stop_loss_percentage*100:.1f}%, TP={self.take_profit_percentage*100:.1f}%, Pos={self.max_position_size*100:.1f}%")
     
     def calculate_position_size(self, stock_data: Dict, portfolio_value: float = 100000) -> Dict:
-        """Calculate optimal position size based on risk management."""
+        """Calculate optimal position size based on adaptive risk management."""
         try:
             current_price = stock_data.get('current_price', 0)
-            stop_loss_price = stock_data.get('stop_loss', 0)
-            confidence = stock_data.get('confidence', 0) / 100
+            confidence = stock_data.get('confidence', 0)
             
-            if current_price <= 0 or stop_loss_price <= 0:
+            # Check confidence threshold
+            if confidence < self.confidence_threshold:
+                return {
+                    'position_size': 0,
+                    'shares': 0,
+                    'investment_amount': 0,
+                    'risk_amount': 0,
+                    'reason': f'Confidence too low: {confidence:.1f}% < {self.confidence_threshold:.1f}%'
+                }
+            
+            # Calculate stop loss and take profit using adaptive parameters
+            stop_loss_price = current_price * (1 - self.stop_loss_percentage)
+            take_profit_price = current_price * (1 + self.take_profit_percentage)
+            
+            if current_price <= 0:
                 return {
                     'position_size': 0,
                     'shares': 0,
@@ -86,11 +110,10 @@ class SwingTradingStrategy:
             }
     
     def calculate_entry_exit_levels(self, stock_data: Dict) -> Dict:
-        """Calculate entry, stop loss, and take profit levels."""
+        """Calculate entry, stop loss, and take profit levels using adaptive parameters."""
         try:
             current_price = stock_data.get('current_price', 0)
-            target_price = stock_data.get('target_price', 0)
-            confidence = stock_data.get('confidence', 0) / 100
+            confidence = stock_data.get('confidence', 0)
             
             if current_price <= 0:
                 return {
@@ -104,28 +127,26 @@ class SwingTradingStrategy:
             # Entry price (current market price)
             entry_price = current_price
             
-            # Stop loss (8% below entry)
+            # Use adaptive stop loss percentage
             stop_loss = entry_price * (1 - self.stop_loss_percentage)
             
-            # Take profit based on confidence and target price
-            if target_price > entry_price:
-                # Use target price if it's reasonable (not more than 30% upside)
-                max_reasonable_target = entry_price * 1.30
-                take_profit = min(target_price, max_reasonable_target)
-            else:
-                # Use confidence-based take profit
-                confidence_multiplier = min(confidence, 1.0)
-                take_profit = entry_price * (1 + self.take_profit_percentage * confidence_multiplier)
+            # Use adaptive take profit percentage
+            take_profit = entry_price * (1 + self.take_profit_percentage)
             
             # Calculate risk-reward ratio
             potential_profit = take_profit - entry_price
             potential_loss = entry_price - stop_loss
             risk_reward_ratio = potential_profit / potential_loss if potential_loss > 0 else 0
             
-            # Adjust take profit if risk-reward ratio is too low
+            # Check if risk-reward ratio meets minimum requirement
             if risk_reward_ratio < self.risk_reward_ratio:
-                take_profit = entry_price + (potential_loss * self.risk_reward_ratio)
-                risk_reward_ratio = self.risk_reward_ratio
+                return {
+                    'entry_price': entry_price,
+                    'stop_loss': stop_loss,
+                    'take_profit': take_profit,
+                    'risk_reward_ratio': risk_reward_ratio,
+                    'strategy': f'Risk-reward ratio too low: {risk_reward_ratio:.2f} < {self.risk_reward_ratio:.2f}'
+                }
             
             return {
                 'entry_price': entry_price,
@@ -134,7 +155,7 @@ class SwingTradingStrategy:
                 'risk_reward_ratio': risk_reward_ratio,
                 'potential_profit': take_profit - entry_price,
                 'potential_loss': entry_price - stop_loss,
-                'strategy': '7-Day Swing with 8% stop loss'
+                'strategy': f'Adaptive Swing: SL={self.stop_loss_percentage*100:.1f}%, TP={self.take_profit_percentage*100:.1f}%'
             }
             
         except Exception as e:
