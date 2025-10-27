@@ -202,13 +202,13 @@ class SwingTradingStrategy:
                 'risk_amount': position_info['risk_amount'],
                 'risk_percentage': position_info['risk_percentage'],
                 
-                # Entry/Exit levels
-                'entry_price': levels_info['entry_price'],
-                'stop_loss': levels_info['stop_loss'],
-                'take_profit': levels_info['take_profit'],
-                'risk_reward_ratio': levels_info['risk_reward_ratio'],
-                'potential_profit': levels_info['potential_profit'],
-                'potential_loss': levels_info['potential_loss'],
+                # Entry/Exit levels with fallback values
+                'entry_price': levels_info.get('entry_price', 0),
+                'stop_loss': levels_info.get('stop_loss', 0),
+                'take_profit': levels_info.get('take_profit', 0),
+                'risk_reward_ratio': levels_info.get('risk_reward_ratio', 0),
+                'potential_profit': levels_info.get('potential_profit', 0),
+                'potential_loss': levels_info.get('potential_loss', 0),
                 
                 # Strategy details
                 'strategy_rules': [
@@ -228,11 +228,11 @@ class SwingTradingStrategy:
                     "Exit if news sentiment turns negative"
                 ],
                 
-                # Success criteria
+                # Success criteria with safe value access
                 'success_criteria': [
-                    f"Target: {levels_info['take_profit']:.2f} (₹{levels_info['potential_profit']:.2f} profit)",
-                    f"Stop loss: {levels_info['stop_loss']:.2f} (₹{levels_info['potential_loss']:.2f} loss)",
-                    f"Risk-reward: {levels_info['risk_reward_ratio']:.2f}:1",
+                    f"Target: {levels_info.get('take_profit', 0):.2f} (₹{levels_info.get('potential_profit', 0):.2f} profit)",
+                    f"Stop loss: {levels_info.get('stop_loss', 0):.2f} (₹{levels_info.get('potential_loss', 0):.2f} loss)",
+                    f"Risk-reward: {levels_info.get('risk_reward_ratio', 0):.2f}:1",
                     f"Expected holding: {self.holding_period_days} days"
                 ]
             }

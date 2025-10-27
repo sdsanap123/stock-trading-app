@@ -19,16 +19,105 @@ class NewsAnalyzer:
     """News analysis and sentiment calculation."""
     
     def __init__(self):
-        # Use only Indian stock market RSS feeds
+        # Comprehensive list of Indian stock market RSS feeds
         self.news_sources = [
+            # Investing.com Feeds
             'https://in.investing.com/rss/news_25.rss',      # Indian Stock Market News
             'https://in.investing.com/rss/news_1062.rss',    # Indian Economy News
             'https://in.investing.com/rss/news_356.rss',     # Indian Corporate News
             'https://in.investing.com/rss/news_462.rss',     # Indian Banking News
             'https://in.investing.com/rss/news_477.rss',     # Indian IPO News
-            'https://in.investing.com/rss/news_14.rss'       # Indian Market Analysis
+            'https://in.investing.com/rss/news_14.rss',      # Indian Market Analysis
+            
+            # Moneycontrol Feeds
+            'https://www.moneycontrol.com/rss/latest.xml',
+            'https://www.moneycontrol.com/rss/buzzingstocks.xml',
+            'https://www.moneycontrol.com/rss/marketreports.xml',
+            'https://www.moneycontrol.com/rss/economy.xml',
+            
+            # Economic Times Feeds
+            'https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms',  # Market News
+            'https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms',  # Stocks in News
+            'https://economictimes.indiatimes.com/markets/expert-view/rssfeeds/52870612.cms',  # Expert Views
+            'https://economictimes.indiatimes.com/markets/ipos/fpos/rssfeeds/2146856.cms',  # IPOs/FPOs
+            
+            # Business Standard Feeds
+            'https://www.business-standard.com/rss/markets-106.rss',
+            'https://www.business-standard.com/rss/companies-101.rss',
+            'https://www.business-standard.com/rss/economy-108.rss',
+            
+            # Livemint Feeds
+            'https://www.livemint.com/rss/markets',
+            'https://www.livemint.com/rss/companies',
+            'https://www.livemint.com/rss/money',
+            
+            # Financial Express Feeds
+            'https://www.financialexpress.com/feed/',
+            'https://www.financialexpress.com/market/feed/',
+            
+            # CNBC TV18 Market News
+            'https://www.cnbctv18.com/market/rss-latest-news.xml',
+            
+            # Zee Business
+            'https://www.zeebiz.com/markets/feed',
+            
+            # NDTV Profit
+            'https://www.ndtvprofit.com/feeds/latest',
+            
+            # Bloomberg Quint
+            'https://www.bloombergquint.com/feeds/markets',
+            
+            # The Hindu Business Line
+            'https://www.thehindubusinessline.com/markets/feeder/default.rss'
         ]
         logger.info("News Analyzer initialized with Indian stock market RSS feeds only")
+    
+    def _get_feed_headers(self) -> dict:
+        """Get headers for RSS feed requests."""
+        return {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/rss+xml, application/xml, text/xml; q=0.9, */*; q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://in.investing.com/',
+            'DNT': '1',
+        }
+    
+    def _parse_feed(self, url: str) -> dict:
+        """Parse RSS feed with proper headers and error handling."""
+        try:
+            import time
+            from urllib.request import Request, urlopen
+            from urllib.error import HTTPError, URLError
+            
+            headers = self._get_feed_headers()
+            req = Request(url, headers=headers)
+            
+            # Add retry logic
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    with urlopen(req, timeout=10) as response:
+                        content = response.read()
+                        return feedparser.parse(content)
+                except HTTPError as e:
+                    if e.code == 403 and attempt < max_retries - 1:
+                        # Exponential backoff
+                        time.sleep(2 ** attempt)
+                        continue
+                    logger.warning(f"HTTP {e.code} when fetching {url}")
+                    return feedparser.FeedParserDict()
+                except (URLError, Exception) as e:
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)
+                        continue
+                    logger.warning(f"Error fetching {url}: {str(e)}")
+                    return feedparser.FeedParserDict()
+            
+            return feedparser.FeedParserDict()
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in _parse_feed for {url}: {str(e)}")
+            return feedparser.FeedParserDict()
     
     def fetch_news(self) -> List[Dict]:
         """Fetch news from various sources."""
@@ -36,53 +125,70 @@ class NewsAnalyzer:
             articles = []
             for source in self.news_sources:
                 try:
-                    feed = feedparser.parse(source)
+                    feed = self._parse_feed(source)
+                    if not feed.entries:
+                        logger.warning(f"No entries found in feed: {source}")
+                        continue
+                        
                     for entry in feed.entries[:10]:  # Limit to 10 per source
-                        articles.append({
-                            'title': entry.get('title', ''),
-                            'description': entry.get('summary', ''),
-                            'url': entry.get('link', ''),
-                            'publishedAt': entry.get('published', ''),
-                            'source': source
-                        })
+                        try:
+                            articles.append({
+                                'title': entry.get('title', '').strip(),
+                                'description': entry.get('description', entry.get('summary', '')).strip(),
+                                'url': entry.get('link', '').strip(),
+                                'publishedAt': entry.get('published', entry.get('updated', '')).strip(),
+                                'source': source
+                            })
+                        except Exception as e:
+                            logger.warning(f"Error processing entry from {source}: {str(e)}")
+                            continue
                 except Exception as e:
                     logger.warning(f"Error fetching from {source}: {str(e)}")
             
-            logger.info(f"Fetched {len(articles)} news articles")
+            logger.info(f"Fetched {len(articles)} news articles from {len(self.news_sources)} sources")
             return articles
             
         except Exception as e:
-            logger.error(f"Error fetching news: {str(e)}")
+            logger.error(f"Error in fetch_news: {str(e)}", exc_info=True)
             return []
     
     def fetch_all_news_articles(self) -> List[Dict]:
-        """Fetch all news articles from RSS feeds."""
+        """Fetch all news articles from RSS feeds with enhanced error handling."""
         try:
             all_articles = []
             
             # Fetch from all RSS sources
             for source in self.news_sources:
                 try:
-                    feed = feedparser.parse(source)
-                    for entry in feed.entries:  # Get all articles from each source
-                        article = {
-                            'title': entry.get('title', ''),
-                            'description': entry.get('summary', ''),
-                            'url': entry.get('link', ''),
-                            'publishedAt': entry.get('published', ''),
-                            'source': source,
-                            'full_content': ''
-                        }
-                        all_articles.append(article)
+                    feed = self._parse_feed(source)
+                    if not feed.entries:
+                        logger.warning(f"No entries found in feed: {source}")
+                        continue
                         
+                    for entry in feed.entries:  # Get all articles from each source
+                        try:
+                            article = {
+                                'title': entry.get('title', '').strip(),
+                                'description': entry.get('description', entry.get('summary', '')).strip(),
+                                'url': entry.get('link', '').strip(),
+                                'publishedAt': entry.get('published', entry.get('updated', '')).strip(),
+                                'source': source,
+                                'full_content': ''
+                            }
+                            all_articles.append(article)
+                        except Exception as e:
+                            logger.warning(f"Error processing entry from {source}: {str(e)}")
+                            continue
+                            
                 except Exception as e:
                     logger.warning(f"Error fetching from {source}: {str(e)}")
+                    continue
             
-            logger.info(f"Fetched {len(all_articles)} total articles from RSS feeds")
+            logger.info(f"Fetched {len(all_articles)} total articles from {len(self.news_sources)} RSS feeds")
             return all_articles
             
         except Exception as e:
-            logger.error(f"Error fetching news articles: {str(e)}")
+            logger.error(f"Error in fetch_all_news_articles: {str(e)}", exc_info=True)
             return []
     
     def filter_indian_news_by_headline(self, articles: List[Dict]) -> List[Dict]:

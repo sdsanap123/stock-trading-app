@@ -168,11 +168,11 @@ Provide analysis for the most impactful news affecting NSE-listed Indian stocks 
             
             # Try up to 3 times with different models
             for attempt in range(3):
-                response = self._try_models_request(models_to_try, headers, prompt, timeout=60)
+                result = self._try_models_request(models_to_try, headers, prompt, timeout=60)
                 
-                if response is not None and response.status_code == 200:
-                    result = response.json()
-                    content = result['choices'][0]['message']['content']
+                if result and 'content' in result:
+                    # Get the content from the successful response
+                    content = result['content']
                     
                     # Try to fix common JSON issues
                     fixed_content = self._fix_json_response(content)
@@ -335,9 +335,9 @@ Provide analysis for the most impactful news affecting NSE-listed Indian stocks 
             # Try the request with fallback models
             response = self._try_models_request(models_to_try, headers, prompt, timeout=30)
             
-            if response is not None and response.status_code == 200:
-                result = response.json()
-                content = result['choices'][0]['message']['content']
+            if response and 'content' in response:
+                content = response['content']
+                result = response.get('raw_response', {})
                 
                 # Parse JSON response
                 try:
@@ -460,9 +460,9 @@ Provide only valid JSON response."""
             
             response = self._try_models_request(models_to_try, headers, prompt, timeout=30)
             
-            if response is not None and response.status_code == 200:
-                result = response.json()
-                content = result['choices'][0]['message']['content']
+            if response and 'content' in response:
+                content = response['content']
+                result = response.get('raw_response', {})
                 
                 try:
                     analysis_data = json.loads(content)
@@ -570,9 +570,9 @@ Guidelines:
             
             response = self._try_models_request(models_to_try, headers, prompt, timeout=15)
             
-            if response is not None and response.status_code == 200:
-                result = response.json()
-                content = result['choices'][0]['message']['content']
+            if response and 'content' in response:
+                content = response['content']
+                result = response.get('raw_response', {})
                 
                 try:
                     analysis_data = json.loads(content)
@@ -606,8 +606,8 @@ Guidelines:
             logger.error(f"Error in stock-specific analysis: {str(e)}")
             return self._service_unavailable_response(f"Analysis error: {str(e)}")
     
-    def _try_models_request(self, models_to_try: List[str], headers: Dict, prompt: str, timeout: int = 30) -> Optional[requests.Response]:
-        """Try different models until one works."""
+    def _try_models_request(self, models_to_try: List[str], headers: Dict, prompt: str, timeout: int = 30) -> Optional[Dict]:
+        """Try different models until one works and return parsed JSON response."""
         failed_models = []
         
         for model in models_to_try:
@@ -621,45 +621,114 @@ Guidelines:
                         }
                     ],
                     "temperature": 0.3,
-                    "max_tokens": 4000
+                    "max_tokens": 4000,
+                    "response_format": {"type": "json_object"}  # Request JSON response format
                 }
                 
-                response = requests.post(self.base_url, headers=headers, json=data, timeout=timeout)
+                logger.info(f"Trying model: {model}")
+                try:
+                    response = requests.post(
+                        self.base_url,
+                        headers=headers,
+                        json=data,
+                        timeout=timeout
+                    )
+                except Exception as e:
+                    error_msg = f"❌ Request failed for model {model}: {str(e)}"
+                    failed_models.append(error_msg)
+                    logger.error(error_msg)
+                    continue
+                
+                # Log response status and first 200 chars for debugging
+                if not hasattr(response, 'status_code'):
+                    # Handle case where response is not a proper response object
+                    error_msg = f"❌ Invalid response object received from model {model}"
+                    failed_models.append(error_msg)
+                    logger.error(error_msg)
+                    continue
+                
+                response_text = response.text[:200] + ('...' if len(response.text) > 200 else '')
+                logger.debug(f"Response status: {response.status_code}, Content: {response_text}")
                 
                 if response.status_code == 200:
-                    logger.info(f"✅ Successfully used model: {model}")
-                    return response
-                elif response.status_code == 400:
-                    # Model not available, try next one
-                    error_msg = f"Model {model} not available"
-                    failed_models.append(error_msg)
-                    logger.warning(f"⚠️ {error_msg}, trying next...")
-                    continue
-                elif response.status_code == 401:
-                    # Authentication error - don't try other models
-                    logger.error(f"❌ Authentication failed for model {model}: {response.text}")
-                    return None
-                elif response.status_code == 429:
-                    # Rate limit - wait a bit and try next
-                    error_msg = f"Model {model} rate limited"
-                    failed_models.append(error_msg)
-                    logger.warning(f"⚠️ {error_msg}, trying next...")
-                    continue
+                    try:
+                        # Parse JSON response
+                        result = response.json()
+                        if 'choices' in result and len(result['choices']) > 0:
+                            content = result['choices'][0]['message']['content']
+                            logger.info(f"✅ Successfully got response from model: {model}")
+                            return {
+                                'model': model,
+                                'content': content,
+                                'raw_response': result
+                            }
+                        else:
+                            raise ValueError("Invalid response format: 'choices' not found")
+                    except (json.JSONDecodeError, KeyError, ValueError) as e:
+                        error_msg = f"Failed to parse response from {model}: {str(e)}"
+                        failed_models.append(error_msg)
+                        logger.error(f"❌ {error_msg}")
+                        continue
                 else:
-                    error_msg = f"Model {model} returned status {response.status_code}"
-                    failed_models.append(error_msg)
-                    logger.warning(f"⚠️ {error_msg}, trying next...")
-                    continue
+                    # Handle different error status codes
+                    error_messages = {
+                        400: f"Model {model} not available or bad request",
+                        401: f"Authentication failed for model {model}",
+                        403: f"Access forbidden for model {model}",
+                        404: f"Model {model} not found",
+                        429: f"Rate limit exceeded for model {model}",
+                        500: f"Server error for model {model}",
+                        502: f"Bad gateway for model {model}",
+                        503: f"Service unavailable for model {model}",
+                        504: f"Gateway timeout for model {model}"
+                    }
                     
-            except requests.exceptions.Timeout:
-                error_msg = f"Model {model} timed out"
-                failed_models.append(error_msg)
-                logger.warning(f"⚠️ {error_msg}, trying next...")
+                    error_msg = error_messages.get(response.status_code, 
+                                               f"Model {model} returned status {response.status_code}")
+                    
+                    if response.status_code in [401, 403]:
+                        # Authentication/authorization error - no point trying other models
+                        logger.error(f"❌ {error_msg}")
+                        return None
+                    
+                    failed_models.append(error_msg)
+                    logger.warning(f"⚠️ {error_msg}, trying next model...")
+                    
+                    # Add delay between retries to avoid rate limiting
+                    if response.status_code == 429:
+                        backoff_time = 2 ** len(failed_models)  # Exponential backoff
+                        logger.info(f"⏳ Rate limited. Waiting {backoff_time} seconds before next attempt...")
+                        time.sleep(backoff_time)
+                
+                # If we get here, the request failed but we should try the next model
                 continue
-            except requests.exceptions.RequestException as e:
-                error_msg = f"Model {model} request error: {str(e)}"
+                
+                if response.status_code in [401, 403]:
+                    # Authentication/authorization error - no point trying other models
+                    logger.error(f"❌ {error_msg}")
+                    return None
+                
                 failed_models.append(error_msg)
-                logger.warning(f"⚠️ {error_msg}, trying next...")
+                logger.warning(f"⚠️ {error_msg}, trying next model...")
+                
+                # Add delay between retries to avoid rate limiting
+                if response.status_code == 429:
+                    backoff_time = 2 ** len(failed_models)  # Exponential backoff
+                    logger.info(f"⏳ Rate limited. Waiting {backoff_time} seconds before next attempt...")
+                    time.sleep(backoff_time)
+                
+            except requests.exceptions.Timeout:
+                error_msg = f"Model {model} timed out after {timeout} seconds"
+                failed_models.append(error_msg)
+                logger.warning(f"⚠️ {error_msg}, trying next model...")
+                time.sleep(1)  # Small delay before next attempt
+                continue
+                
+            except requests.exceptions.RequestException as e:
+                error_msg = f"Request error for model {model}: {str(e)}"
+                failed_models.append(error_msg)
+                logger.warning(f"⚠️ {error_msg}, trying next model...")
+                time.sleep(1)  # Small delay before next attempt
                 continue
         
         logger.error(f"❌ All models failed. Failed models: {', '.join(failed_models)}")

@@ -276,10 +276,25 @@ class DataPersistenceManager:
             logger.error(f"Error cleaning up expired data: {str(e)}")
     
     def save_recommendations(self, recommendations: List[Dict], date_str: str = None) -> bool:
-        """Save recommendations for a specific date."""
+        """Save recommendations for a specific date.
+        
+        Args:
+            recommendations: List of recommendation dictionaries
+            date_str: Date string in format 'YYYY-MM-DD'. If None, uses current date.
+        """
         try:
+            # Standardize date format to YYYY-MM-DD
             if date_str is None:
-                date_str = datetime.now().strftime("%Y-%m-%d")
+                date_obj = datetime.now()
+            else:
+                try:
+                    # Try parsing the date string if it's in a different format
+                    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                except ValueError:
+                    # If parsing fails, use current date
+                    date_obj = datetime.now()
+            
+            date_str = date_obj.strftime("%Y-%m-%d")  # Ensure consistent format
             
             # Convert recommendations to serializable format
             serializable_recs = []
@@ -514,15 +529,30 @@ class DataPersistenceManager:
             logger.error(f"Error getting swing strategies for {date_str}: {str(e)}")
             return []
     
-    def get_recommendations_by_date(self, date_str: str = None) -> List[Dict]:
-        """Get recommendations for a specific date."""
-        try:
-            if date_str is None:
-                date_str = datetime.now().strftime("%Y-%m-%d")
+    def get_recommendations_by_date(self, date_str: str) -> List[Dict]:
+        """Get recommendations for a specific date.
+        
+        Args:
+            date_str: Date string in format 'YYYY-MM-DD' or any other format that can be parsed
             
+        Returns:
+            List of recommendations for the specified date, or empty list if none found
+        """
+        try:
+            # Try to parse the date string to ensure consistent format
+            try:
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                date_str = date_obj.strftime("%Y-%m-%d")
+            except ValueError:
+                # If parsing fails, try to find the closest match
+                for key in self.recommendations.keys():
+                    if date_str in key:  # Try partial match
+                        return self.recommendations[key]
+                return []
+                
             return self.recommendations.get(date_str, [])
         except Exception as e:
-            logger.error(f"Error getting recommendations by date: {str(e)}")
+            logger.error(f"Error getting recommendations for {date_str}: {str(e)}")
             return []
     
     def get_all_recommendations(self) -> Dict[str, List[Dict]]:
