@@ -1,0 +1,58 @@
+[
+    {
+        "symbol": "NTPC",
+        "company_name": "",
+        "entry_price": 341.5,
+        "current_price": 342.70001220703125,
+        "target_price": 367.52230000000003,
+        "stop_loss": 314.18,
+        "recommendation": "BUY",
+        "confidence": 60.4,
+        "added_date": "2025-10-17T09:42:04.904127",
+        "last_updated": "2025-10-24T14:45:02.783346",
+        "status": "ACTIVE",
+        "notes": ""
+    },
+    {
+        "symbol": "HDFCBANK",
+        "company_name": "",
+        "entry_price": 994.3499755859375,
+        "current_price": 994.4500122070312,
+        "target_price": 1066.3906313171385,
+        "stop_loss": 914.8019775390626,
+        "recommendation": "BUY",
+        "confidence": 59.14999999999999,
+        "added_date": "2025-10-17T09:42:06.154165",
+        "last_updated": "2025-10-24T14:45:02.783357",
+        "status": "ACTIVE",
+        "notes": ""
+    },
+    {
+        "symbol": "SUNPHARMA",
+        "company_name": "",
+        "entry_price": 1659.0,
+        "current_price": 1666.199951171875,
+        "target_price": 1807.56345,
+        "stop_loss": 1526.28,
+        "recommendation": "BUY",
+        "confidence": 64.85,
+        "added_date": "2025-10-17T09:42:07.187514",
+        "last_updated": "2025-10-24T14:45:02.783365",
+        "status": "ACTIVE",
+        "notes": ""
+    },
+    {
+        "symbol": "WIPRO",
+        "company_name": "",
+        "entry_price": 242.6300048828125,
+        "current_price": 242.6300048828125,
+        "target_price": 266.0862606048584,
+        "stop_loss": 223.2196044921875,
+        "recommendation": "BUY",
+        "confidence": 67.225,
+        "added_date": "2025-10-17T10:08:33.389585",
+        "last_updated": "2025-10-24T14:45:02.783371",
+        "status": "ACTIVE",
+        "notes": ""
+    }
+]
