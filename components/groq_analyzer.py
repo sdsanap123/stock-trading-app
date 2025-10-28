@@ -9,6 +9,8 @@ import json
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime
+import time
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +37,150 @@ class GroqNewsAnalyzer:
         except Exception as e:
             logger.error(f"Error initializing Groq AI: {str(e)}")
     
+    def set_api_key(self, api_key: str):
+        """Set API key and validate it."""
+        try:
+            if not api_key or not api_key.strip():
+                self.api_key = None
+                self.initialized = False
+                logger.warning("Empty API key provided")
+                return False
+            
+            self.api_key = api_key.strip()
+            
+            # Test the API key with a simple request
+            if self._validate_api_key():
+                self.initialized = True
+                logger.info("Groq API key validated and set successfully")
+                return True
+            else:
+                self.initialized = False
+                logger.error("Invalid Groq API key")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error setting Groq API key: {str(e)}")
+            self.initialized = False
+            return False
+    
+    def _validate_api_key(self) -> bool:
+        """Validate the API key with a simple test request."""
+        try:
+            if not self.api_key:
+                return False
+            
+            # Make a simple test request to validate the API key
+            import requests
+            
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            # Simple test payload
+            test_payload = {
+                "model": "llama-3.1-8b-instant",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 10
+            }
+            
+            response = requests.post(
+                self.base_url,
+                headers=headers,
+                json=test_payload,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                return True
+            elif response.status_code == 401:
+                logger.error("Groq API key validation failed: Unauthorized")
+                return False
+            else:
+                logger.warning(f"Groq API key validation returned status {response.status_code}")
+                return True  # Assume valid if not 401
+                
+        except Exception as e:
+            logger.error(f"Error validating Groq API key: {str(e)}")
+            return False
+    
+    def _make_request_with_retry(self, payload: Dict, max_retries: int = 3) -> Optional[Dict]:
+        """Make API request with retry logic for rate limiting."""
+        for attempt in range(max_retries):
+            try:
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+                
+                response = requests.post(
+                    self.base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    return response.json()
+                elif response.status_code == 429:  # Rate limited
+                    if attempt < max_retries - 1:
+                        # Exponential backoff with jitter
+                        wait_time = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(f"Rate limited, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error("Rate limited after all retries")
+                        return None
+                elif response.status_code == 401:
+                    logger.error("Authentication failed - invalid API key")
+                    return None
+                else:
+                    logger.error(f"API request failed with status {response.status_code}: {response.text}")
+                    return None
+                    
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(f"Request timeout, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error("Request timeout after all retries")
+                    return None
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(f"Request error: {str(e)}, waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Request failed after all retries: {str(e)}")
+                    return None
+        
+        return None
+    
+    def _get_gemini_fallback(self):
+        """Get Gemini analyzer as fallback."""
+        try:
+            # Import here to avoid circular imports
+            from .gemini_analyzer import GeminiAIAnalyzer
+            return GeminiAIAnalyzer()
+        except Exception as e:
+            logger.error(f"Could not initialize Gemini fallback: {str(e)}")
+            return None
+    
     def analyze_top_10_news_with_full_content(self, news_articles: List[Dict]) -> Dict:
         """Analyze top 10 news articles with full content for stock sentiment."""
         try:
             if not self.initialized:
-                return self._service_unavailable_response("Groq AI not initialized. Please set your GROQ_API_KEY.")
+                logger.warning("Groq not initialized, trying Gemini fallback...")
+                gemini_fallback = self._get_gemini_fallback()
+                if gemini_fallback and gemini_fallback.initialized:
+                    logger.info("Using Gemini fallback for news analysis")
+                    return gemini_fallback.analyze_top_10_news_with_full_content(news_articles)
+                else:
+                    return self._service_unavailable_response("Groq AI not initialized and Gemini fallback unavailable. Please set your API keys.")
             
             if not news_articles:
                 return self._service_unavailable_response("No news articles provided for analysis.")
@@ -158,21 +299,20 @@ Provide analysis for the most impactful news affecting NSE-listed Indian stocks 
                 'Content-Type': 'application/json'
             }
             
-            # Use the same model fallback approach (matching original app)
+            # Use currently available models (desktop app models were decommissioned)
             models_to_try = [
-                "llama-3.1-8b-instant",    # Primary model from original app
-                "llama-3.1-70b-versatile", # Most capable model from original app
-                "mixtral-8x7b-32768",      # Alternative high-performance model
-                "gemma-7b-it"              # Google's model
+                "llama-3.1-8b-instant",     # Primary working model
+                "llama-3.3-70b-versatile",  # Alternative if available
+                "llama-3.1-70b-versatile"   # Fallback if available
             ]
             
             # Try up to 3 times with different models
             for attempt in range(3):
-                result = self._try_models_request(models_to_try, headers, prompt, timeout=60)
+                response = self._try_models_request(models_to_try, headers, prompt, timeout=60)
                 
-                if result and 'content' in result:
-                    # Get the content from the successful response
-                    content = result['content']
+                if response is not None and response.status_code == 200:
+                    result = response.json()
+                    content = result['choices'][0]['message']['content']
                     
                     # Try to fix common JSON issues
                     fixed_content = self._fix_json_response(content)
@@ -241,9 +381,14 @@ Provide analysis for the most impactful news affecting NSE-listed Indian stocks 
                     if attempt < 2:
                         continue
             
-            # If we get here, all attempts failed
-            logger.error("All attempts failed to get valid response from Groq")
-            return self._service_unavailable_response("All Groq AI models are currently unavailable. Please check your API key and try again later.")
+            # If we get here, all attempts failed - try Gemini fallback
+            logger.error("All attempts failed to get valid response from Groq, trying Gemini fallback...")
+            gemini_fallback = self._get_gemini_fallback()
+            if gemini_fallback and gemini_fallback.initialized:
+                logger.info("Using Gemini fallback for news analysis")
+                return gemini_fallback.analyze_top_10_news_with_full_content(news_articles)
+            else:
+                return self._service_unavailable_response("All Groq AI models are currently unavailable and Gemini fallback unavailable. Please check your API keys and try again later.")
             
         except requests.exceptions.Timeout:
             logger.error("Groq API request timed out")
@@ -311,8 +456,7 @@ Provide analysis for the most impactful news affecting NSE-listed Indian stocks 
 
             # Try different models in order of preference (matching original app)
             models_to_try = [
-                "llama-3.1-8b-instant",    # Primary model from original app
-                "llama-3.1-70b-versatile", # Most capable model from original app
+                "llama-3.1-8b-instant",    # Only model to use
                 "mixtral-8x7b-32768",      # Alternative high-performance model
                 "gemma-7b-it"              # Google's model
             ]
@@ -335,9 +479,9 @@ Provide analysis for the most impactful news affecting NSE-listed Indian stocks 
             # Try the request with fallback models
             response = self._try_models_request(models_to_try, headers, prompt, timeout=30)
             
-            if response and 'content' in response:
-                content = response['content']
-                result = response.get('raw_response', {})
+            if response is not None and response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content']
                 
                 # Parse JSON response
                 try:
@@ -450,22 +594,23 @@ Provide only valid JSON response."""
                 'Content-Type': 'application/json'
             }
             
-            # Use the same model fallback approach (matching original app)
+            # Use currently available models (desktop app models were decommissioned)
             models_to_try = [
-                "llama-3.1-8b-instant",    # Primary model from original app
-                "llama-3.1-70b-versatile", # Most capable model from original app
-                "mixtral-8x7b-32768",      # Alternative high-performance model
-                "gemma-7b-it"              # Google's model
+                "llama-3.1-8b-instant",     # Primary working model
+                "llama-3.3-70b-versatile",  # Alternative if available
+                "llama-3.1-70b-versatile"   # Fallback if available
             ]
             
             response = self._try_models_request(models_to_try, headers, prompt, timeout=30)
             
-            if response and 'content' in response:
-                content = response['content']
-                result = response.get('raw_response', {})
+            if response is not None and response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content']
                 
                 try:
-                    analysis_data = json.loads(content)
+                    # Try to fix the JSON response first
+                    fixed_content = self._fix_json_response(content)
+                    analysis_data = json.loads(fixed_content)
                     return {
                         'status': 'success',
                         'overall_score': float(analysis_data.get('overall_score', 0.5)),
@@ -560,22 +705,23 @@ Guidelines:
                 'Content-Type': 'application/json'
             }
             
-            # Use the same model fallback approach (matching original app)
+            # Use currently available models (desktop app models were decommissioned)
             models_to_try = [
-                "llama-3.1-8b-instant",    # Primary model from original app
-                "llama-3.1-70b-versatile", # Most capable model from original app
-                "mixtral-8x7b-32768",      # Alternative high-performance model
-                "gemma-7b-it"              # Google's model
+                "llama-3.1-8b-instant",     # Primary working model
+                "llama-3.3-70b-versatile",  # Alternative if available
+                "llama-3.1-70b-versatile"   # Fallback if available
             ]
             
             response = self._try_models_request(models_to_try, headers, prompt, timeout=15)
             
-            if response and 'content' in response:
-                content = response['content']
-                result = response.get('raw_response', {})
+            if response is not None and response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content']
                 
                 try:
-                    analysis_data = json.loads(content)
+                    # Try to fix the JSON response first
+                    fixed_content = self._fix_json_response(content)
+                    analysis_data = json.loads(fixed_content)
                     return {
                         'status': 'success',
                         'sentiment_score': float(analysis_data.get('sentiment_score', 0)),
@@ -593,8 +739,13 @@ Guidelines:
                 logger.error(f"Groq API error for stock analysis: {response.status_code}")
                 return self._service_unavailable_response(f"Groq API error: {response.status_code}")
             else:
-                logger.error("All Groq models failed for stock analysis - no response received")
-                return self._service_unavailable_response("All available Groq models are currently unavailable. Please try again later.")
+                logger.error("All Groq models failed for stock analysis - trying Gemini fallback...")
+                gemini_fallback = self._get_gemini_fallback()
+                if gemini_fallback and gemini_fallback.initialized:
+                    logger.info("Using Gemini fallback for stock analysis")
+                    return gemini_fallback.get_comprehensive_stock_analysis(symbol, technical_data, fundamental_data, news_articles)
+                else:
+                    return self._service_unavailable_response("All available Groq models are currently unavailable and Gemini fallback unavailable. Please try again later.")
             
         except requests.exceptions.Timeout:
             logger.error("Groq API request timed out for stock analysis")
@@ -606,8 +757,8 @@ Guidelines:
             logger.error(f"Error in stock-specific analysis: {str(e)}")
             return self._service_unavailable_response(f"Analysis error: {str(e)}")
     
-    def _try_models_request(self, models_to_try: List[str], headers: Dict, prompt: str, timeout: int = 30) -> Optional[Dict]:
-        """Try different models until one works and return parsed JSON response."""
+    def _try_models_request(self, models_to_try: List[str], headers: Dict, prompt: str, timeout: int = 30) -> Optional[requests.Response]:
+        """Try different models until one works."""
         failed_models = []
         
         for model in models_to_try:
@@ -621,114 +772,41 @@ Guidelines:
                         }
                     ],
                     "temperature": 0.3,
-                    "max_tokens": 4000,
-                    "response_format": {"type": "json_object"}  # Request JSON response format
+                    "max_tokens": 4000
                 }
                 
-                logger.info(f"Trying model: {model}")
-                try:
-                    response = requests.post(
-                        self.base_url,
-                        headers=headers,
-                        json=data,
-                        timeout=timeout
-                    )
-                except Exception as e:
-                    error_msg = f"❌ Request failed for model {model}: {str(e)}"
-                    failed_models.append(error_msg)
-                    logger.error(error_msg)
-                    continue
+                # Use retry logic for this request
+                response_data = self._make_request_with_retry(data)
                 
-                # Log response status and first 200 chars for debugging
-                if not hasattr(response, 'status_code'):
-                    # Handle case where response is not a proper response object
-                    error_msg = f"❌ Invalid response object received from model {model}"
-                    failed_models.append(error_msg)
-                    logger.error(error_msg)
-                    continue
-                
-                response_text = response.text[:200] + ('...' if len(response.text) > 200 else '')
-                logger.debug(f"Response status: {response.status_code}, Content: {response_text}")
-                
-                if response.status_code == 200:
-                    try:
-                        # Parse JSON response
-                        result = response.json()
-                        if 'choices' in result and len(result['choices']) > 0:
-                            content = result['choices'][0]['message']['content']
-                            logger.info(f"✅ Successfully got response from model: {model}")
-                            return {
-                                'model': model,
-                                'content': content,
-                                'raw_response': result
-                            }
-                        else:
-                            raise ValueError("Invalid response format: 'choices' not found")
-                    except (json.JSONDecodeError, KeyError, ValueError) as e:
-                        error_msg = f"Failed to parse response from {model}: {str(e)}"
-                        failed_models.append(error_msg)
-                        logger.error(f"❌ {error_msg}")
-                        continue
+                if response_data:
+                    logger.info(f"✅ Successfully used model: {model}")
+                    # Create a mock response object with the data
+                    class MockResponse:
+                        def __init__(self, data):
+                            self.status_code = 200
+                            self.json_data = data
+                        def json(self):
+                            return self.json_data
+                        @property
+                        def text(self):
+                            return json.dumps(self.json_data)
+                    return MockResponse(response_data)
                 else:
-                    # Handle different error status codes
-                    error_messages = {
-                        400: f"Model {model} not available or bad request",
-                        401: f"Authentication failed for model {model}",
-                        403: f"Access forbidden for model {model}",
-                        404: f"Model {model} not found",
-                        429: f"Rate limit exceeded for model {model}",
-                        500: f"Server error for model {model}",
-                        502: f"Bad gateway for model {model}",
-                        503: f"Service unavailable for model {model}",
-                        504: f"Gateway timeout for model {model}"
-                    }
-                    
-                    error_msg = error_messages.get(response.status_code, 
-                                               f"Model {model} returned status {response.status_code}")
-                    
-                    if response.status_code in [401, 403]:
-                        # Authentication/authorization error - no point trying other models
-                        logger.error(f"❌ {error_msg}")
-                        return None
-                    
+                    # Request failed after retries, try next model
+                    error_msg = f"Model {model} failed after retries"
                     failed_models.append(error_msg)
-                    logger.warning(f"⚠️ {error_msg}, trying next model...")
+                    logger.warning(f"⚠️ {error_msg}, trying next...")
+                    continue
                     
-                    # Add delay between retries to avoid rate limiting
-                    if response.status_code == 429:
-                        backoff_time = 2 ** len(failed_models)  # Exponential backoff
-                        logger.info(f"⏳ Rate limited. Waiting {backoff_time} seconds before next attempt...")
-                        time.sleep(backoff_time)
-                
-                # If we get here, the request failed but we should try the next model
-                continue
-                
-                if response.status_code in [401, 403]:
-                    # Authentication/authorization error - no point trying other models
-                    logger.error(f"❌ {error_msg}")
-                    return None
-                
-                failed_models.append(error_msg)
-                logger.warning(f"⚠️ {error_msg}, trying next model...")
-                
-                # Add delay between retries to avoid rate limiting
-                if response.status_code == 429:
-                    backoff_time = 2 ** len(failed_models)  # Exponential backoff
-                    logger.info(f"⏳ Rate limited. Waiting {backoff_time} seconds before next attempt...")
-                    time.sleep(backoff_time)
-                
             except requests.exceptions.Timeout:
-                error_msg = f"Model {model} timed out after {timeout} seconds"
+                error_msg = f"Model {model} timed out"
                 failed_models.append(error_msg)
-                logger.warning(f"⚠️ {error_msg}, trying next model...")
-                time.sleep(1)  # Small delay before next attempt
+                logger.warning(f"⚠️ {error_msg}, trying next...")
                 continue
-                
             except requests.exceptions.RequestException as e:
-                error_msg = f"Request error for model {model}: {str(e)}"
+                error_msg = f"Model {model} request error: {str(e)}"
                 failed_models.append(error_msg)
-                logger.warning(f"⚠️ {error_msg}, trying next model...")
-                time.sleep(1)  # Small delay before next attempt
+                logger.warning(f"⚠️ {error_msg}, trying next...")
                 continue
         
         logger.error(f"❌ All models failed. Failed models: {', '.join(failed_models)}")
@@ -823,6 +901,28 @@ Guidelines:
     def _fix_json_response(self, content: str) -> str:
         """Try to fix common JSON issues in Groq responses."""
         try:
+            # First, try to extract JSON from code blocks
+            if '```' in content:
+                # Look for JSON code blocks
+                if '```json' in content:
+                    start_marker = '```json'
+                    end_marker = '```'
+                elif '```' in content:
+                    # Generic code block
+                    start_marker = '```'
+                    end_marker = '```'
+                else:
+                    start_marker = None
+                    end_marker = None
+                
+                if start_marker and end_marker:
+                    start_idx = content.find(start_marker)
+                    if start_idx >= 0:
+                        start_idx += len(start_marker)
+                        end_idx = content.find(end_marker, start_idx)
+                        if end_idx > start_idx:
+                            content = content[start_idx:end_idx].strip()
+            
             # Remove any text before the first {
             start_idx = content.find('{')
             if start_idx > 0:
