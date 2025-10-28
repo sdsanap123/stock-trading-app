@@ -1069,8 +1069,15 @@ class StreamlitTradingApp:
             
             st.markdown("<hr style='margin: 0.5rem 0;'/>", unsafe_allow_html=True)
             
-            # Display recommendations in rows
-            for i, rec in enumerate(st.session_state.recommendations):
+            # Sort recommendations by confidence in descending order
+            sorted_recommendations = sorted(
+                st.session_state.recommendations,
+                key=lambda x: x.get('confidence', 0),
+                reverse=True
+            )
+            
+            # Display recommendations in rows (sorted by confidence)
+            for i, rec in enumerate(sorted_recommendations):
                 ExpandableUI.display_recommendation_row(rec, i)
                 
                 # Check if add to watchlist button was clicked
@@ -1265,34 +1272,38 @@ class StreamlitTradingApp:
                 else:
                     st.warning("No recommendations to refresh. Run market analysis first.")
         
-        # Swing strategies are automatically saved when generated
-        
         with col2:
             if st.button("📊 Analyze Performance", type="secondary", key="analyze_swing_performance_btn"):
                 self.analyze_swing_performance()
         
         with col3:
-            if st.button("📊 View Saved", key="view_saved_swing"):
-                st.session_state.show_saved_swing_strategies = not st.session_state.get('show_saved_swing_strategies', False)
+            if st.button("📅 View All Dates", key="view_all_swing"):
+                st.session_state.show_all_swing_dates = not st.session_state.get('show_all_swing_dates', False)
         
-        # Show saved strategies if toggled
-        if st.session_state.get('show_saved_swing_strategies', False):
+        # Toggle between today's strategies and all dates view
+        if st.session_state.get('show_all_swing_dates', False):
             self.display_saved_swing_strategies()
             return
         
         # Display current adaptive parameters
         self.display_current_adaptive_parameters()
         
+        # Get today's date in YYYY-MM-DD format
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        # Get all strategies for today from data persistence
+        data_persistence = st.session_state.data_persistence
+        swing_strategies = data_persistence.get_swing_strategies_by_date(today)
+        
+        # Also include any newly generated strategies that haven't been saved yet
         if st.session_state.recommendations:
-            # Extract swing strategies from recommendations
-            swing_strategies = []
             for rec in st.session_state.recommendations:
                 swing_plan = rec.get('swing_plan', {})
-                if swing_plan:
+                if swing_plan and swing_plan not in swing_strategies:
                     swing_strategies.append(swing_plan)
             
             if swing_strategies:
-                st.subheader(f"📈 Swing Trading Plans ({len(swing_strategies)} strategies)")
+                st.subheader(f"📈 Today's Swing Trading Plans ({len(swing_strategies)} strategies)")
                 
                 # Summary metrics
                 col1, col2, col3, col4 = st.columns(4)
@@ -1305,7 +1316,7 @@ class StreamlitTradingApp:
                     st.metric("High Confidence", high_confidence)
                 
                 with col3:
-                    avg_risk_reward = sum(s.get('risk_reward_ratio', 0) for s in swing_strategies) / len(swing_strategies)
+                    avg_risk_reward = sum(s.get('risk_reward_ratio', 0) for s in swing_strategies) / len(swing_strategies) if swing_strategies else 0
                     st.metric("Avg Risk-Reward", f"{avg_risk_reward:.2f}:1")
                 
                 with col4:
@@ -1322,6 +1333,8 @@ class StreamlitTradingApp:
                     avg_days = total_days / len(swing_strategies) if swing_strategies else 0
                     st.metric("Avg Days Left", f"{avg_days:.0f}")
                 
+                st.info(f"Showing {len(swing_strategies)} strategies for {today}. Click 'View All Dates' to see strategies from other dates.")
+                
                 st.markdown("---")
                 
                 # Header row with consistent alignment
@@ -1337,9 +1350,9 @@ class StreamlitTradingApp:
                 with col5:
                     st.markdown("**Days**")
                 with col6:
-                    st.markdown("**Risk/Reward**")
+                    st.markdown("**Status**")
                 with col7:
-                    st.markdown("**Details**")
+                    st.markdown("**Actions**")
                 with col8:
                     st.markdown("**Actions**")
                 
@@ -2232,8 +2245,8 @@ class StreamlitTradingApp:
             if strategies:
                 st.success(f"Found {len(strategies)} swing strategies for {selected_date}")
                 
-                # Header row
-                col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8])
+                # Header row with consistent column widths
+                col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8, 0.8])
                 with col1:
                     st.markdown("**Stock**")
                 with col2:
@@ -2245,8 +2258,10 @@ class StreamlitTradingApp:
                 with col5:
                     st.markdown("**Days Left**")
                 with col6:
-                    st.markdown("**Risk-Reward**")
+                    st.markdown("**Status**")
                 with col7:
+                    st.markdown("**Actions**")
+                with col8:
                     st.markdown("**Details**")
                 
                 st.markdown("---")
