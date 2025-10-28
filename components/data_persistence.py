@@ -484,11 +484,23 @@ class DataPersistenceManager:
                 }
                 serializable_strategies.append(strategy_data)
             
-            # Save to datewise structure
-            self.swing_strategies[date_str] = serializable_strategies
+            # Get existing strategies for this date
+            existing_strategies = self.swing_strategies.get(date_str, [])
+            existing_symbols = {s['symbol'] for s in existing_strategies}
+            
+            # Add only new strategies that don't already exist for this symbol
+            new_strategies = [
+                s for s in serializable_strategies 
+                if s['symbol'] not in existing_symbols
+            ]
+            
+            # Combine existing and new strategies
+            updated_strategies = existing_strategies + new_strategies
+            self.swing_strategies[date_str] = updated_strategies
+            
             self._save_swing_strategies()
             
-            logger.info(f"Saved {len(serializable_strategies)} swing strategies for {date_str}")
+            logger.info(f"Saved {len(new_strategies)} new swing strategies for {date_str} (total: {len(updated_strategies)})")
             return True
             
         except Exception as e:
