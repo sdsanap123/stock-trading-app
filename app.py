@@ -4,6 +4,14 @@ Enhanced Swing Trading App - Streamlit Web Version
 A comprehensive stock analysis and trading application with AI-powered recommendations.
 """
 
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+env_path = Path('.') / '.env'
+load_dotenv(dotenv_path=env_path)
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -15,11 +23,7 @@ import pickle
 import time
 import requests
 from typing import Dict, List, Optional, Tuple
-import os
 import sys
-import tempfile
-import zipfile
-import shutil
 from dataclasses import dataclass
 from textblob import TextBlob
 import feedparser
@@ -202,50 +206,35 @@ class StreamlitTradingApp:
     
     def initialize_session_state(self):
         """Initialize Streamlit session state."""
-        # Skip data loading if we're in the middle of a reset
-        is_resetting = st.session_state.get('is_resetting', False)
+        # First, initialize the data persistence
+        if 'data_persistence' not in st.session_state:
+            st.session_state.data_persistence = DataPersistenceManager()
         
-        # Initialize core session state variables
-        if 'recommendations' not in st.session_state:
-            st.session_state.recommendations = []
-        if 'news_articles' not in st.session_state:
-            st.session_state.news_articles = []
-        if 'groq_news_data' not in st.session_state:
-            st.session_state.groq_news_data = []
-        if 'watchlist' not in st.session_state:
-            st.session_state.watchlist = []
+        # Initialize cache manager
+        if 'cache_manager' not in st.session_state:
+            st.session_state.cache_manager = CacheManager()
             
-        # Initialize other state variables with defaults
-        default_states = {
+        # Initialize basic session state variables
+        session_vars = {
+            'recommendations': [],
+            'news_articles': [],
+            'groq_news_data': {},
+            'watchlist': [],
+            'portfolio': [],
             'analysis_in_progress': False,
             'last_analysis_time': None,
-            'learning_available': False,
+            'show_saved_recommendations': False,
             'saved_groq_key': self.load_saved_api_key('groq'),
-            'saved_gemini_key': self.load_saved_api_key('gemini'),
-            'cache_manager': CacheManager(),
-            'swing_performance_tracker': SwingPerformanceTracker(working_capital=100000),
-            'email_notifications': EmailNotificationManager(),
-            'notification_settings': NotificationSettingsManager(),
-            'data_persistence': DataPersistenceManager(),
-            'scheduled_analysis': ScheduledAnalysis(self.analyze_market)
+            'saved_gemini_key': self.load_saved_api_key('gemini')
         }
         
-        # Set default states if they don't exist
-        for key, default_value in default_states.items():
+        # Set default values if not already set
+        for key, default_value in session_vars.items():
             if key not in st.session_state:
                 st.session_state[key] = default_value
         
-        # Initialize swing strategy with adaptive parameters if not exists
-        if 'swing_strategy' not in st.session_state:
-            adaptive_params = st.session_state.swing_performance_tracker.get_adaptive_parameters()
-            st.session_state.swing_strategy = SwingTradingStrategy(adaptive_parameters=adaptive_params)
-        
-        # Initialize price monitor with callback if not exists
-        if 'price_monitor' not in st.session_state:
-            st.session_state.price_monitor = PriceMonitor(self._notification_callback)
-        
-        # Only load saved data if we're not resetting and data isn't already loaded
-        if not is_resetting and not st.session_state.watchlist:
+        # Load watchlist from database if available and watchlist is empty
+        if not st.session_state.watchlist:
             try:
                 saved_watchlist = st.session_state.data_persistence.get_watchlist()
                 if saved_watchlist:
@@ -253,82 +242,52 @@ class StreamlitTradingApp:
                     logger.info(f"Loaded {len(saved_watchlist)} items from saved watchlist")
             except Exception as e:
                 logger.error(f"Error loading watchlist: {str(e)}")
-                st.session_state.watchlist = []
         
-        # Only load recommendations if we're not resetting and they're not already loaded
-        if not is_resetting and not st.session_state.get('recommendations'):
+        # Load recommendations if we don't have any in the current session
+        if not st.session_state.recommendations:
             try:
                 available_dates = st.session_state.data_persistence.get_available_dates()
                 if available_dates:
-                    # Sort dates in descending order to get the most recent first
-                    sorted_dates = sorted(available_dates, reverse=True)
-                    
-                    # Try to find the most recent date with recommendations
-                    for date_str in sorted_dates:
-                        try:
-                            latest_recommendations = st.session_state.data_persistence.get_recommendations_by_date(date_str)
-                            if latest_recommendations and isinstance(latest_recommendations, list):
-                                # Process and clean up the loaded recommendations
-                                processed_recommendations = []
-                                for rec in latest_recommendations:
-                                    if not isinstance(rec, dict):
-                                        continue
-                                        
-                                    # Ensure all required fields are present with proper defaults
-                                    processed_rec = {
-                                        'symbol': rec.get('symbol', ''),
-                                        'company_name': rec.get('company_name', ''),
-                                        'current_price': float(rec.get('current_price', 0)),
-                                        'recommendation': rec.get('recommendation', 'HOLD'),
-                                        'confidence': float(rec.get('confidence', 0)),
-                                        'target_price': float(rec.get('target_price', 0)),
-                                        'stop_loss': float(rec.get('stop_loss', 0)),
-                                        'reasoning': rec.get('reasoning', 'No reasoning provided'),
-                                        'technical_data': rec.get('technical_data', {}),
-                                        'fundamental_data': rec.get('fundamental_data', {}),
-                                        'groq_analysis': rec.get('groq_analysis', {}),
-                                        'gemini_analysis': rec.get('gemini_analysis', {}),
-                                        'swing_plan': rec.get('swing_plan', {}),
-                                        'swing_validation': rec.get('swing_validation', {}),
-                                        'created_at': rec.get('created_at', datetime.now().isoformat())
-                                    }
-                                    
-                                    # Only add if we have a valid symbol
-                                    if processed_rec['symbol']:
-                                        processed_recommendations.append(processed_rec)
-                                
-                                # Update session state with the processed recommendations
-                                if processed_recommendations:
-                                    st.session_state.recommendations = processed_recommendations
-                                    logger.info(f"Successfully loaded {len(processed_recommendations)} recommendations from {date_str}")
-                                    break  # Only load the most recent recommendations
-                                    break  # Stop after loading the first valid set of recommendations
-                                
-                        except Exception as e:
-                            logger.error(f"Error processing recommendations for {date_str}: {str(e)}")
-                            continue  # Try the next date if there's an error
-                            
-                    if not st.session_state.recommendations:
-                        logger.info("No valid recommendations found in any date")
+                    latest_date = max(available_dates)
+                    latest_recommendations = st.session_state.data_persistence.get_recommendations_by_date(latest_date)
+                    if latest_recommendations:
+                        # Convert any string values to their appropriate types
+                        for rec in latest_recommendations:
+                            # Ensure confidence is a number
+                            if 'confidence' in rec and isinstance(rec['confidence'], str):
+                                try:
+                                    rec['confidence'] = float(rec['confidence'])
+                                except (ValueError, TypeError):
+                                    rec['confidence'] = 0.0
                         
+                        # Remove duplicates based on symbol
+                        unique_recommendations = {}
+                        for rec in latest_recommendations:
+                            symbol = rec.get('symbol')
+                            if symbol:  # Only add if symbol exists
+                                unique_recommendations[symbol] = rec
+                        
+                        st.session_state.recommendations = list(unique_recommendations.values())
+                        logger.info(f"Loaded {len(st.session_state.recommendations)} unique recommendations from {latest_date}")
             except Exception as e:
                 logger.error(f"Error loading recommendations: {str(e)}")
+                st.session_state.recommendations = []  # Ensure we have an empty list on error
         
-        # Initialize swing strategies if not already in session state
-        if 'swing_strategies' not in st.session_state:
-            st.session_state.swing_strategies = []
-            try:
-                # Load swing strategies from the most recent date
-                swing_dates = st.session_state.data_persistence.get_swing_strategy_dates()
-                if swing_dates:
-                    latest_swing_date = max(swing_dates)
-                    swing_strategies = st.session_state.data_persistence.get_swing_strategies_by_date(latest_swing_date)
-                    if swing_strategies:
-                        st.session_state.swing_strategies = swing_strategies
-                        logger.info(f"Loaded {len(swing_strategies)} swing strategies from {latest_swing_date}")
-            except Exception as e:
-                logger.error(f"Error loading swing strategies: {str(e)}")
-    
+        if 'swing_performance_tracker' not in st.session_state:
+            st.session_state.swing_performance_tracker = SwingPerformanceTracker(working_capital=100000)
+        if 'swing_strategy' not in st.session_state:
+            # Initialize swing strategy with adaptive parameters
+            adaptive_params = st.session_state.swing_performance_tracker.get_adaptive_parameters()
+            st.session_state.swing_strategy = SwingTradingStrategy(adaptive_parameters=adaptive_params)
+        if 'email_notifications' not in st.session_state:
+            st.session_state.email_notifications = EmailNotificationManager()
+        if 'price_monitor' not in st.session_state:
+            st.session_state.price_monitor = PriceMonitor(self._notification_callback)
+        if 'notification_settings' not in st.session_state:
+            st.session_state.notification_settings = NotificationSettingsManager()
+        if 'scheduled_analysis' not in st.session_state:
+            st.session_state.scheduled_analysis = ScheduledAnalysis(self.analyze_market)
+        
     def initialize_components(self):
         """Initialize all analysis components."""
         try:
@@ -473,261 +432,22 @@ class StreamlitTradingApp:
             logger.error(f"Error auto-saving watchlist: {str(e)}")
     
     def _auto_save_swing_strategies(self):
-        """Automatically save swing strategies with proper data structure."""
+        """Automatically save swing strategies."""
         try:
             if st.session_state.get('recommendations'):
                 swing_strategies = []
-                current_time = datetime.now().isoformat()
-                
                 for rec in st.session_state.recommendations:
-                    # Only process BUY recommendations with a swing plan
-                    if rec.get('recommendation', '').upper() == 'BUY' and 'swing_plan' in rec:
-                        swing_plan = rec.get('swing_plan', {})
-                        if swing_plan and isinstance(swing_plan, dict):
-                            # Create a complete swing strategy object
-                            strategy = {
-                                'symbol': rec.get('symbol', ''),
-                                'company_name': rec.get('company_name', ''),
-                                'strategy_name': swing_plan.get('strategy_name', 'Swing Trade'),
-                                'entry_price': float(swing_plan.get('entry_price', 0)),
-                                'stop_loss': float(swing_plan.get('stop_loss', 0)),
-                                'take_profit': float(swing_plan.get('take_profit', 0)),
-                                'position_size': int(swing_plan.get('position_size', 0)),
-                                'investment_amount': float(swing_plan.get('investment_amount', 0)),
-                                'risk_amount': float(swing_plan.get('risk_amount', 0)),
-                                'risk_reward_ratio': float(swing_plan.get('risk_reward_ratio', 0)),
-                                'confidence': float(rec.get('confidence', 0)),
-                                'entry_date': swing_plan.get('entry_date', current_time),
-                                'expected_exit_date': swing_plan.get('expected_exit_date', ''),
-                                'holding_period_days': int(swing_plan.get('holding_period_days', 5)),
-                                'status': 'ACTIVE',
-                                'created_at': current_time,
-                                'technical_data': rec.get('technical_data', {}),
-                                'groq_analysis': rec.get('groq_analysis', {})
-                            }
-                            swing_strategies.append(strategy)
+                    swing_plan = rec.get('swing_plan', {})
+                    if swing_plan:
+                        swing_strategies.append(swing_plan)
                 
                 if swing_strategies:
                     data_persistence = st.session_state.data_persistence
-                    # Save with current date for organization
-                    current_date = datetime.now().strftime("%Y-%m-%d")
-                    success = data_persistence.save_swing_strategies(swing_strategies, current_date)
-                    
-                    if success:
-                        logger.info(f"Auto-saved {len(swing_strategies)} swing strategies for {current_date}")
-                        return True
-                    else:
-                        logger.error("Failed to save swing strategies")
-                        return False
-                else:
-                    logger.info("No valid swing strategies to save")
-                    return True
-            return False
+                    data_persistence.save_swing_strategies(swing_strategies)
+                    logger.info(f"Auto-saved {len(swing_strategies)} swing strategies")
         except Exception as e:
             logger.error(f"Error auto-saving swing strategies: {str(e)}")
-            return False
     
-    def backup_application_data(self):
-        """Backup all application data to a ZIP file."""
-        try:
-            import zipfile
-            import tempfile
-            from datetime import datetime
-            
-            # Create a temporary directory for the backup
-            with tempfile.TemporaryDirectory() as temp_dir:
-                backup_dir = os.path.join(temp_dir, 'trading_app_backup')
-                os.makedirs(backup_dir, exist_ok=True)
-                
-                # List of data files to backup
-                data_files = [
-                    'recommendations.json',
-                    'saved_recommendations.json',
-                    'watchlist.json',
-                    'saved_watchlist.json',
-                    'swing_strategies.json',
-                    'saved_swing_strategies.json',
-                    'news_articles.json',
-                    'saved_news_articles.json',
-                    'portfolio.json',
-                    'saved_portfolio.json',
-                    'settings.json',
-                    'user_preferences.json',
-                    'notification_preferences.json'
-                ]
-                
-                # Copy data files to backup directory
-                data_dir = os.path.join(os.getcwd(), 'data')
-                for filename in data_files:
-                    src_path = os.path.join(data_dir, filename)
-                    if os.path.exists(src_path):
-                        shutil.copy2(src_path, os.path.join(backup_dir, filename))
-                
-                # Create a timestamped backup filename
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                backup_filename = f'trading_app_backup_{timestamp}.zip'
-                backup_path = os.path.join(os.getcwd(), 'backups')
-                os.makedirs(backup_path, exist_ok=True)
-                backup_filepath = os.path.join(backup_path, backup_filename)
-                
-                # Create the ZIP file
-                with zipfile.ZipFile(backup_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                    for root, _, files in os.walk(backup_dir):
-                        for file in files:
-                            file_path = os.path.join(root, file)
-                            arcname = os.path.relpath(file_path, backup_dir)
-                            zipf.write(file_path, arcname)
-                
-                logger.info(f"Backup created successfully: {backup_filepath}")
-                return backup_filepath
-                
-        except Exception as e:
-            error_msg = f"Error creating backup: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            raise Exception(error_msg)
-    
-    def restore_application_data(self, backup_file):
-        """Restore application data from a backup ZIP file."""
-        try:
-            import zipfile
-            import tempfile
-            
-            # Create a temporary directory for extraction
-            with tempfile.TemporaryDirectory() as temp_dir:
-                # Extract the backup ZIP
-                with zipfile.ZipFile(backup_file, 'r') as zip_ref:
-                    zip_ref.extractall(temp_dir)
-                
-                # Find the backup directory
-                backup_dir = None
-                for root, dirs, _ in os.walk(temp_dir):
-                    if 'trading_app_backup' in dirs:
-                        backup_dir = os.path.join(root, 'trading_app_backup')
-                        break
-                
-                if not backup_dir or not os.path.exists(backup_dir):
-                    raise Exception("Invalid backup file: backup directory not found")
-                
-                # Clear existing data directory
-                data_dir = os.path.join(os.getcwd(), 'data')
-                if os.path.exists(data_dir):
-                    shutil.rmtree(data_dir)
-                os.makedirs(data_dir, exist_ok=True)
-                
-                # Copy files from backup to data directory
-                for filename in os.listdir(backup_dir):
-                    src_path = os.path.join(backup_dir, filename)
-                    if os.path.isfile(src_path):
-                        shutil.copy2(src_path, os.path.join(data_dir, filename))
-                
-                logger.info("Data restored successfully from backup")
-                
-        except Exception as e:
-            error_msg = f"Error restoring from backup: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            raise Exception(error_msg)
-    
-    def reset_application(self):
-        """Reset the application to its initial state, clearing all data and cache."""
-        try:
-            logger.info("Starting application reset...")
-            
-            # Set a flag to prevent data reloading during reset
-            st.session_state.is_resetting = True
-            
-            # Clear all cached data first
-            if hasattr(self, 'cache_manager'):
-                try:
-                    self.cache_manager.clear_all()
-                    logger.info("Cache cleared successfully")
-                except Exception as cache_error:
-                    logger.error(f"Error clearing cache: {str(cache_error)}")
-                    
-            # Ensure we have a clean data directory
-            data_dir = os.path.join(os.getcwd(), 'data')
-            if os.path.exists(data_dir):
-                try:
-                    shutil.rmtree(data_dir)
-                    logger.info("Removed data directory")
-                except Exception as e:
-                    logger.error(f"Error removing data directory: {str(e)}")
-            
-            # Recreate data directory
-            os.makedirs(data_dir, exist_ok=True)
-            logger.info("Recreated data directory")
-            
-            # Clear all saved data files
-            data_files = [
-                'recommendations.json',
-                'saved_recommendations.json',
-                'watchlist.json',
-                'saved_watchlist.json',
-                'swing_strategies.json',
-                'saved_swing_strategies.json',
-                'news_articles.json',
-                'saved_news_articles.json',
-                'portfolio.json',
-                'saved_portfolio.json',
-                'settings.json',
-                'user_preferences.json'
-            ]
-            
-            # Ensure data directory exists
-            data_dir = os.path.join(os.getcwd(), 'data')
-            os.makedirs(data_dir, exist_ok=True)
-            
-            # Remove all data files
-            for file in data_files:
-                try:
-                    file_path = os.path.join(data_dir, file)
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                        logger.info(f"Removed file: {file_path}")
-                except Exception as file_error:
-                    logger.error(f"Error removing {file}: {str(file_error)}")
-            
-            # Clear all session state variables
-            st.session_state.clear()
-            
-            # Clear any Streamlit cache
-            try:
-                from streamlit.runtime.scriptrunner.script_run_context import get_script_run_ctx
-                from streamlit.runtime.caching import get_cache_stats
-                
-                # Clear all caches
-                for cache in get_cache_stats():
-                    cache.clear()
-                
-                # Reset script context
-                ctx = get_script_run_ctx()
-                if ctx and hasattr(ctx, 'reset'):
-                    ctx.reset()
-            except Exception as ctx_error:
-                logger.warning(f"Could not reset script context: {str(ctx_error)}")
-            
-            # Re-initialize the application with default values
-            self.initialize_session_state()
-            self.initialize_components()
-            
-            # Clear the resetting flag
-            if 'is_resetting' in st.session_state:
-                del st.session_state.is_resetting
-            
-            logger.info("Application reset completed successfully")
-            
-            # Use st.experimental_rerun() for better state management
-            st.experimental_rerun()
-            
-        except Exception as e:
-            error_msg = f"Error resetting application: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            st.error(f"❌ {error_msg}")
-            st.exception("Detailed error:")
-            
-            # Ensure we clear the resetting flag even if there's an error
-            if 'is_resetting' in st.session_state:
-                del st.session_state.is_resetting
-
     def _auto_save_news(self):
         """Automatically save news articles."""
         try:
@@ -757,86 +477,30 @@ class StreamlitTradingApp:
         except Exception as e:
             logger.error(f"Error auto-saving news: {str(e)}")
     
-    def _get_api_key_file_path(self) -> str:
-        """Get the path to the API keys file."""
-        # Create .streamlit directory if it doesn't exist
-        os.makedirs('.streamlit', exist_ok=True)
-        return os.path.join('.streamlit', 'api_keys.json')
-        
-    def _save_api_key_to_file(self, key_type: str, api_key: str) -> None:
-        """Save API key to a file for persistence."""
-        try:
-            file_path = self._get_api_key_file_path()
-            keys = {}
-            
-            # Load existing keys if file exists
-            if os.path.exists(file_path):
-                with open(file_path, 'r') as f:
-                    try:
-                        keys = json.load(f)
-                    except json.JSONDecodeError:
-                        logger.warning("Corrupted API keys file, creating a new one")
-            
-            # Update the key
-            keys[f"{key_type.upper()}_API_KEY"] = api_key
-            
-            # Save back to file
-            with open(file_path, 'w') as f:
-                json.dump(keys, f)
-                
-        except Exception as e:
-            logger.error(f"Error saving API key to file: {str(e)}")
-            raise
-    
-    def _load_api_key_from_file(self, key_type: str) -> str:
-        """Load API key from file."""
-        try:
-            file_path = self._get_api_key_file_path()
-            if not os.path.exists(file_path):
-                return ""
-                
-            with open(file_path, 'r') as f:
-                keys = json.load(f)
-                return keys.get(f"{key_type.upper()}_API_KEY", "")
-                
-        except Exception as e:
-            logger.warning(f"Error loading API key from file: {str(e)}")
-            return ""
-    
     def load_saved_api_key(self, key_type: str) -> str:
-        """Load saved API key from multiple sources in order of priority."""
+        """Load saved API key from session state or environment variables (Replit Secrets)."""
         try:
-            # 1. First check session state (for current session)
+            # First check session state (for current session)
             if key_type == 'groq':
-                session_key = st.session_state.get('saved_groq_key')
+                session_key = st.session_state.get('saved_groq_key', '')
                 if session_key:
                     return session_key
             elif key_type == 'gemini':
-                session_key = st.session_state.get('saved_gemini_key')
+                session_key = st.session_state.get('saved_gemini_key', '')
                 if session_key:
                     return session_key
             
-            # 2. Try to load from file (persistent storage)
-            file_key = self._load_api_key_from_file(key_type)
-            if file_key:
-                # Update session state for faster access
-                if key_type == 'groq':
-                    st.session_state.saved_groq_key = file_key
-                elif key_type == 'gemini':
-                    st.session_state.saved_gemini_key = file_key
-                return file_key
-            
-            # 3. Check environment variables (Replit Secrets)
+            # Check environment variables (Replit Secrets)
             if key_type == 'groq':
-                env_key = os.getenv('GROQ_API_KEY')
+                env_key = os.getenv('GROQ_API_KEY', '')
                 if env_key:
                     return env_key
             elif key_type == 'gemini':
-                env_key = os.getenv('GEMINI_API_KEY')
+                env_key = os.getenv('GEMINI_API_KEY', '')
                 if env_key:
                     return env_key
             
-            # 4. Try Streamlit secrets (for deployment)
+            # Try Streamlit secrets (for deployment)
             try:
                 if key_type == 'groq':
                     return st.secrets.get('GROQ_API_KEY', '')
@@ -847,11 +511,10 @@ class StreamlitTradingApp:
                 
         except Exception as e:
             logger.warning(f"Could not load saved {key_type} API key: {str(e)}")
-            
         return ""
     
     def save_api_key(self, key_type: str, api_key: str) -> bool:
-        """Save API key to session state and persistent storage."""
+        """Save API key to session state only. For permanent storage, use Replit Secrets."""
         try:
             # Save to session state for current session
             if key_type == 'groq':
@@ -859,17 +522,14 @@ class StreamlitTradingApp:
             elif key_type == 'gemini':
                 st.session_state.saved_gemini_key = api_key
             
-            # Save to persistent storage
-            self._save_api_key_to_file(key_type, api_key)
-            
-            logger.info(f"Saved {key_type} API key")
+            logger.info(f"Saved {key_type} API key to session state")
             return True
         except Exception as e:
             logger.error(f"Could not save {key_type} API key: {str(e)}")
             return False
     
     def delete_saved_api_key(self, key_type: str) -> bool:
-        """Clear saved API key from session state and persistent storage."""
+        """Clear saved API key from session state."""
         try:
             # Clear from session state
             if key_type == 'groq':
@@ -877,25 +537,7 @@ class StreamlitTradingApp:
             elif key_type == 'gemini':
                 st.session_state.saved_gemini_key = ""
             
-            # Remove from persistent storage
-            try:
-                file_path = self._get_api_key_file_path()
-                if os.path.exists(file_path):
-                    with open(file_path, 'r') as f:
-                        keys = json.load(f)
-                    
-                    # Remove the key
-                    key_name = f"{key_type.upper()}_API_KEY"
-                    if key_name in keys:
-                        del keys[key_name]
-                        
-                        # Save back to file
-                        with open(file_path, 'w') as f:
-                            json.dump(keys, f)
-            except Exception as e:
-                logger.warning(f"Could not remove API key from file: {str(e)}")
-            
-            logger.info(f"Cleared {key_type} API key")
+            logger.info(f"Cleared {key_type} API key from session state")
             return True
         except Exception as e:
             logger.error(f"Could not clear {key_type} API key: {str(e)}")
@@ -986,137 +628,8 @@ class StreamlitTradingApp:
     
     def create_sidebar(self):
         """Create the sidebar with controls."""
+        # Compact sidebar - only show essential controls
         with st.sidebar:
-            # Date filter
-            st.subheader("📅 Date Filter")
-            
-            # Get unique dates from recommendations
-            all_dates = set()
-            if 'recommendations' in st.session_state and st.session_state.recommendations:
-                for rec in st.session_state.recommendations:
-                    created_at = rec.get('created_at', '')
-                    if created_at:
-                        try:
-                            if 'T' in created_at:
-                                date_str = created_at.split('T')[0]
-                            else:
-                                date_str = created_at.split()[0]
-                            date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
-                            all_dates.add(date_obj)
-                        except Exception as e:
-                            logger.warning(f"Error parsing date {created_at}: {str(e)}")
-            
-            # Add current date if no dates found
-            if not all_dates:
-                all_dates.add(datetime.now().date())
-            
-            # Sort dates in descending order
-            sorted_dates = sorted(all_dates, reverse=True)
-            
-            # Date selector
-            selected_date = st.selectbox(
-                "Select Date",
-                options=sorted_dates,
-                format_func=lambda x: x.strftime('%Y-%m-%d'),
-                index=0  # Default to most recent date
-            )
-            
-            # Store selected date in session state
-            st.session_state.selected_date = selected_date
-            
-            # Backup & Restore Section
-            st.markdown("---")
-            st.subheader("💾 Backup & Restore")
-            
-            # Create backups directory if it doesn't exist
-            backups_dir = os.path.join(os.getcwd(), 'backups')
-            os.makedirs(backups_dir, exist_ok=True)
-            
-            # Backup button
-            if st.button("💾 Create Backup", help="Create a backup of all application data"):
-                try:
-                    backup_path = self.backup_application_data()
-                    st.success(f"✅ Backup created successfully at: {os.path.basename(backup_path)}")
-                except Exception as e:
-                    st.error(f"❌ Failed to create backup: {str(e)}")
-            
-            # Restore section
-            st.markdown("### Restore from Backup")
-            
-            # List available backups
-            backup_files = []
-            if os.path.exists(backups_dir):
-                backup_files = [f for f in os.listdir(backups_dir) 
-                              if f.endswith('.zip') and f.startswith('trading_app_backup_')]
-                backup_files.sort(reverse=True)  # Sort by newest first
-            
-            if not backup_files:
-                st.info("No backup files found.")
-            else:
-                selected_backup = st.selectbox(
-                    "Select a backup to restore",
-                    backup_files,
-                    format_func=lambda x: x.replace('trading_app_backup_', '').replace('.zip', '')
-                )
-                
-                if st.button("🔄 Restore Selected Backup", type="primary", 
-                           help="Restore application data from the selected backup"):
-                    backup_path = os.path.join(backups_dir, selected_backup)
-                    try:
-                        with st.spinner("Restoring backup..."):
-                            self.restore_application_data(backup_path)
-                            st.success("✅ Backup restored successfully! The application will now reload.")
-                            st.session_state.is_resetting = True
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Failed to restore backup: {str(e)}")
-            
-            # Reset section
-            st.markdown("---")
-            st.subheader("⚙️ Application Settings")
-            
-            # Use a unique key for the confirmation state
-            reset_key = 'reset_confirmation_state'
-            
-            # Initialize the confirmation state if it doesn't exist
-            if reset_key not in st.session_state:
-                st.session_state[reset_key] = False
-            
-            # Show the reset button
-            if st.button("🔄 Reset Application", 
-                        type="secondary", 
-                        help="Reset all data and start fresh",
-                        key="reset_button"):
-                st.session_state[reset_key] = True
-                st.rerun()
-            
-            # Show confirmation dialog if reset was requested
-            if st.session_state.get(reset_key, False):
-                st.warning("⚠️ Are you sure you want to reset all application data? This cannot be undone!")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("✅ Yes, Reset Everything", 
-                               type="primary",
-                               key="confirm_reset"):
-                        st.session_state[reset_key] = False
-                        try:
-                            logger.info("User confirmed application reset")
-                            self.reset_application()
-                            st.success("✅ Application has been reset successfully!")
-                            # Force a rerun to ensure clean state
-                            st.rerun()
-                        except Exception as e:
-                            logger.error(f"Error during reset: {str(e)}", exc_info=True)
-                            st.error(f"❌ Error resetting application: {str(e)}")
-                
-                with col2:
-                    if st.button("❌ Cancel", 
-                               key="cancel_reset"):
-                        st.session_state[reset_key] = False
-                        st.rerun()
-            
-            st.markdown("---")
             # Always show essential controls
             st.markdown("### 🚀 Quick Actions")
             
@@ -1382,34 +895,12 @@ class StreamlitTradingApp:
         
         # News is automatically saved when fetched
         
-        # Add JavaScript to handle the close message from the iframe
-        st.markdown("""
-        <script>
-        // Listen for messages from the iframe
-        window.addEventListener('message', function(event) {
-            if (event.data === 'close_popup') {
-                // This will trigger a rerun of the app
-                const button = document.createElement('button');
-                button.id = 'close_popup_btn';
-                button.style.display = 'none';
-                document.body.appendChild(button);
-                button.click();
-                document.body.removeChild(button);
-            }
-        });
-        </script>
-        """, unsafe_allow_html=True)
-        
-        # Add a dummy button to trigger a rerun when the popup is closed
-        if st.button("Close Popup", key="close_popup_btn", help="", on_click=lambda: None):
-            pass
-        
         # Display news articles in rows
         if st.session_state.news_articles:
             st.subheader(f"📰 Latest News ({len(st.session_state.news_articles)} articles)")
             
             # Header row
-            col1, col2, col3, col4 = st.columns([3, 1.5, 1, 1])
+            col1, col2, col3, col4, col5 = st.columns([3, 1.5, 1, 1, 0.8])
             with col1:
                 st.markdown("**Headline**")
             with col2:
@@ -1418,6 +909,8 @@ class StreamlitTradingApp:
                 st.markdown("**Published**")
             with col4:
                 st.markdown("**Sentiment**")
+            with col5:
+                st.markdown("**Details**")
             
             st.markdown("---")
             
@@ -1525,116 +1018,30 @@ class StreamlitTradingApp:
             if st.button("🔄 Refresh", key="refresh_recs_btn"):
                 st.rerun()
         
+        # Recommendations are automatically saved when generated
+        
         # Display recommendations
         if st.session_state.recommendations:
-            # Filter only BUY recommendations
-            buy_recommendations = [rec for rec in st.session_state.recommendations 
-                                 if rec.get('recommendation', '').upper() == 'BUY']
+            st.subheader(f"🎯 BUY Recommendations ({len(st.session_state.recommendations)} stocks)")
             
-            if not buy_recommendations:
-                st.warning("No BUY recommendations found. Generate some recommendations first.")
-                return
-                
-            # Get selected date from session state or use today's date
-            selected_date = st.session_state.get('selected_date', datetime.now().date())
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
             
-            # Track the most recent recommendation for each stock on the selected date
-            latest_recommendations = {}
+            with col1:
+                st.metric("Total BUY", len(st.session_state.recommendations))
             
-            for rec in buy_recommendations:
-                symbol = rec.get('symbol', '').upper()
-                if not symbol:
-                    continue
-                    
-                # Get the date from created_at or use current date
-                created_at = rec.get('created_at', '')
-                try:
-                    if created_at:
-                        # Try to parse the date from ISO format
-                        if 'T' in created_at:
-                            date_str = created_at.split('T')[0]
-                            time_part = created_at.split('T')[1].split('.')[0]  # Get time part without microseconds
-                            dt = datetime.strptime(f"{date_str} {time_part}", '%Y-%m-%d %H:%M:%S')
-                        else:
-                            date_str = created_at.split()[0]
-                            dt = datetime.strptime(date_str, '%Y-%m-%d')
-                    else:
-                        dt = datetime.now()
-                except Exception as e:
-                    logger.warning(f"Error parsing date {created_at}: {str(e)}")
-                    dt = datetime.now()
-                
-                # Only consider recommendations for the selected date
-                if dt.date() != selected_date:
-                    continue
-                
-                # Keep only the most recent recommendation for each stock
-                if symbol not in latest_recommendations or dt > latest_recommendations[symbol]['timestamp']:
-                    rec['_parsed_timestamp'] = dt
-                    latest_recommendations[symbol] = {
-                        'recommendation': rec,
-                        'timestamp': dt
-                    }
+            with col2:
+                avg_confidence = sum(r.get('confidence', 0) for r in st.session_state.recommendations) / len(st.session_state.recommendations)
+                st.metric("Avg Confidence", f"{avg_confidence:.1f}%")
             
-            # Group the unique recommendations by date
-            recommendations_by_date = {}
-            for symbol, data in latest_recommendations.items():
-                rec = data['recommendation']
-                date_obj = data['timestamp'].date()
-                
-                if date_obj not in recommendations_by_date:
-                    recommendations_by_date[date_obj] = []
-                recommendations_by_date[date_obj].append(rec)
+            with col3:
+                high_confidence = len([r for r in st.session_state.recommendations if r.get('confidence', 0) >= 80])
+                st.metric("High Confidence", high_confidence)
             
-            # Sort dates in descending order (newest first)
-            sorted_dates = sorted(recommendations_by_date.keys(), reverse=True)
-            
-            # Display each date group
-            for date_obj in sorted_dates:
-                date_recs = recommendations_by_date[date_obj]
-                date_str = date_obj.strftime('%A, %B %d, %Y')
-                
-                with st.expander(f"📅 {date_str} ({len(date_recs)} stocks)", expanded=True):
-                    # Summary metrics for this date
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        st.metric("Total BUY", len(date_recs))
-                    
-                    with col2:
-                        avg_confidence = sum(r.get('confidence', 0) for r in date_recs) / len(date_recs)
-                        st.metric("Avg Confidence", f"{avg_confidence:.1f}%")
-                    
-                    with col3:
-                        high_confidence = len([r for r in date_recs if r.get('confidence', 0) >= 80])
-                        st.metric("High Confidence", high_confidence)
-                    
-                    st.markdown("---")
-                    
-                    # Header row
-                    col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8])
-                    with col1:
-                        st.markdown("**Stock**")
-                    with col2:
-                        st.markdown("**CMP**")
-                    with col3:
-                        st.markdown("**Target**")
-                    with col4:
-                        st.markdown("**Stop Loss**")
-                    with col5:
-                        st.markdown("**Confidence**")
-                    with col6:
-                        st.markdown("**Added**")
-                    with col7:
-                        st.markdown("**Actions**")
-                    
-                    st.markdown("---")
-                    
-                    # Display recommendations for this date
-                    for i, rec in enumerate(date_recs):
-                        ExpandableUI.display_recommendation_row(rec, i)
-                    
-                    st.markdown("\n")  # Add some space between date groups
+            with col4:
+                st.metric("Actions", "View Saved")
+                if st.button("📊 View Saved", key="view_saved_recs"):
+                    st.session_state.show_saved_recommendations = not st.session_state.get('show_saved_recommendations', False)
             
             # Show saved recommendations if toggled
             if st.session_state.get('show_saved_recommendations', False):
@@ -1643,24 +1050,24 @@ class StreamlitTradingApp:
             
             st.markdown("---")
             
-            # Header row
-            col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1.5, 1, 1, 1, 0.8, 0.8])
+            # Header row with consistent alignment and tooltips
+            col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 0.8, 0.8])
             with col1:
                 st.markdown("**Stock**")
             with col2:
-                st.markdown("**CMP**")
+                st.markdown("**Price (₹)**")
             with col3:
-                st.markdown("**Target**")
-            with col4:
-                st.markdown("**Stop Loss**")
-            with col5:
                 st.markdown("**Confidence**")
+            with col4:
+                st.markdown("**Target (₹)**")
+            with col5:
+                st.markdown("**Stop Loss**")
             with col6:
                 st.markdown("**Details**")
             with col7:
                 st.markdown("**Actions**")
             
-            st.markdown("---")
+            st.markdown("<hr style='margin: 0.5rem 0;'/>", unsafe_allow_html=True)
             
             # Display recommendations in rows
             for i, rec in enumerate(st.session_state.recommendations):
@@ -1853,7 +1260,12 @@ class StreamlitTradingApp:
         
         with col1:
             if st.button("🔄 Refresh Strategies", type="primary", key="refresh_strategies_btn"):
-                st.rerun()
+                if st.session_state.get('recommendations'):
+                    st.rerun()
+                else:
+                    st.warning("No recommendations to refresh. Run market analysis first.")
+        
+        # Swing strategies are automatically saved when generated
         
         with col2:
             if st.button("📊 Analyze Performance", type="secondary", key="analyze_swing_performance_btn"):
@@ -1871,267 +1283,124 @@ class StreamlitTradingApp:
         # Display current adaptive parameters
         self.display_current_adaptive_parameters()
         
-        # Get swing strategies from session state
-        swing_strategies = st.session_state.get('swing_strategies', [])
-        
-        if not swing_strategies and st.session_state.get('recommendations'):
-            # Fallback to extracting from recommendations if no dedicated swing strategies found
-            swing_strategies = self._extract_swing_strategies_from_recommendations()
-            
-            # Save to session state for future use
-            if swing_strategies:
-                st.session_state.swing_strategies = swing_strategies
-                # Auto-save the swing strategies
-                self._auto_save_swing_strategies()
-        
-        if swing_strategies:
-            st.subheader(f"📈 Swing Trading Plans ({len(swing_strategies)} strategies)")
-            
-            # Summary metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Total Strategies", len(swing_strategies))
-            
-            with col2:
-                high_confidence = len([s for s in swing_strategies if s.get('confidence', 0) >= 80])
-                st.metric("High Confidence", high_confidence)
-            
-            with col3:
-                avg_risk_reward = sum(float(s.get('risk_reward_ratio', 0)) for s in swing_strategies) / len(swing_strategies) if swing_strategies else 0
-                st.metric("Avg Risk-Reward", f"{avg_risk_reward:.2f}:1")
-            
-            with col4:
-                # Calculate days to expiry
-                current_date = datetime.now()
-                total_days = 0
-                valid_dates = 0
-                for strategy in swing_strategies:
-                    try:
-                        exit_date_str = strategy.get('expected_exit_date', '')
-                        if exit_date_str:
-                            if 'T' in exit_date_str:
-                                exit_date = datetime.fromisoformat(exit_date_str.replace('Z', '+00:00'))
-                            else:
-                                # Handle date-only format
-                                exit_date = datetime.strptime(exit_date_str, "%Y-%m-%d")
-                            days_remaining = (exit_date - current_date).days
-                            if days_remaining >= 0:  # Only count future dates
-                                total_days += days_remaining
-                                valid_dates += 1
-                    except Exception as e:
-                        logger.warning(f"Error processing exit date: {str(e)}")
-                
-                avg_days = total_days / valid_dates if valid_dates > 0 else 7  # Default to 7 days if no valid dates
-                st.metric("Avg Days Left", f"{avg_days:.0f}")
-            
-            st.markdown("---")
-            
-            # Header row
-            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8, 0.8])
-            with col1:
-                st.markdown("**Stock**")
-            
-    def _extract_swing_strategies_from_recommendations(self):
-        """Extract swing strategies from recommendations."""
-        swing_strategies = []
-        current_time = datetime.now().isoformat()
-        
-        # Track seen symbols to avoid duplicates
-        seen_symbols = set()
-        
-        # Get all recommendations, including historical ones
-        all_recommendations = st.session_state.get('all_recommendations', [])
-        current_recommendations = st.session_state.get('recommendations', [])
-        
-        # Combine all recommendations, current ones first (to prioritize them in case of duplicates)
-        combined_recommendations = current_recommendations + all_recommendations
-        
-        # Sort recommendations by timestamp (newest first) if available
-        try:
-            combined_recommendations.sort(
-                key=lambda x: (
-                    x.get('_parsed_timestamp', datetime.min) if hasattr(x, 'get') else datetime.min,
-                    x.get('created_at', '') if hasattr(x, 'get') else ''
-                ),
-                reverse=True
-            )
-        except Exception as e:
-            logger.warning(f"Error sorting recommendations: {str(e)}")
-        
-        for rec in combined_recommendations:
-            if not isinstance(rec, dict):
-                continue
-                
-            symbol = rec.get('symbol', '').upper()
-            if not symbol:
-                continue
-                
-            # Skip if we've already seen this symbol
-            if symbol in seen_symbols:
-                continue
-                
-            if rec.get('recommendation', '').upper() == 'BUY' and 'swing_plan' in rec:
+        if st.session_state.recommendations:
+            # Extract swing strategies from recommendations
+            swing_strategies = []
+            for rec in st.session_state.recommendations:
                 swing_plan = rec.get('swing_plan', {})
-                if swing_plan and isinstance(swing_plan, dict):
-                    # Convert values to proper types and ensure all required fields exist
-                    strategy = {
-                        'symbol': symbol,
-                        'company_name': rec.get('company_name', ''),
-                        'current_price': float(rec.get('current_price', 0)),
-                        'target_price': float(swing_plan.get('take_profit', 0)),
-                        'stop_loss': float(swing_plan.get('stop_loss', 0)),
-                        'entry_price': float(swing_plan.get('entry_price', 0)),
-                        'risk_reward_ratio': float(swing_plan.get('risk_reward_ratio', 0)),
-                        'confidence': float(rec.get('confidence', 0)),
-                        'entry_date': swing_plan.get('entry_date', current_time),
-                        'expected_exit_date': swing_plan.get('expected_exit_date', ''),
-                        'holding_period_days': int(swing_plan.get('holding_period_days', 5)),
-                        'status': 'ACTIVE',
-                        'created_at': rec.get('created_at', current_time),
-                        '_parsed_timestamp': rec.get('_parsed_timestamp', datetime.now())
-                    }
-                    swing_strategies.append(strategy)
-                    seen_symbols.add(symbol)  # Mark this symbol as seen
-        
-        return swing_strategies
-
-    def swing_trading_tab(self):
-        """Display the Swing Trading tab with active strategies."""
-        st.header("Swing Trading Strategies")
-        
-        # Get swing strategies
-        swing_strategies = self._extract_swing_strategies_from_recommendations()
-        
-        if not swing_strategies:
-            st.info("No active swing trading strategies found.")
-            return
+                if swing_plan:
+                    swing_strategies.append(swing_plan)
             
-        # Display metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Active Strategies", len(swing_strategies))
-        
-        # Calculate average days left
-        total_days = 0
-        valid_dates = 0
-        current_date = datetime.now()
-        
-        for strategy in swing_strategies:
-            try:
-                exit_date_str = strategy.get('expected_exit_date', '')
-                if exit_date_str:
-                    if 'T' in exit_date_str:
-                        exit_date = datetime.fromisoformat(exit_date_str.replace('Z', '+00:00'))
-                    else:
-                        exit_date = datetime.strptime(exit_date_str, "%Y-%m-%d")
-                    days_remaining = (exit_date - current_date).days
-                    if days_remaining >= 0:
-                        total_days += days_remaining
-                        valid_dates += 1
-            except Exception as e:
-                logger.warning(f"Error processing exit date: {str(e)}")
-        
-        avg_days = total_days / valid_dates if valid_dates > 0 else 0
-        with col2:
-            st.metric("Avg Days Left", f"{avg_days:.0f}")
-            
-        st.markdown("---")
-        
-        # Header row
-        col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8, 0.8])
-        with col1:
-            st.markdown("**Stock**")
-        with col2:
-            st.markdown("**CMP**")
-        with col3:
-            st.markdown("**Take Profit**")
-        with col4:
-            st.markdown("**Stop Loss**")
-        with col5:
-            st.markdown("**Days Left**")
-        with col6:
-            st.markdown("**Risk-Reward**")
-        
-        # Display each strategy
-        for i, strategy in enumerate(swing_strategies):
-            # Skip invalid strategies
-            if not strategy or not isinstance(strategy, dict):
-                continue
+            if swing_strategies:
+                st.subheader(f"📈 Swing Trading Plans ({len(swing_strategies)} strategies)")
                 
-            # Calculate days left
-            days_left = 0
-            try:
-                exit_date_str = strategy.get('expected_exit_date', '')
-                if exit_date_str:
-                    if 'T' in exit_date_str:
-                        exit_date = datetime.fromisoformat(exit_date_str.replace('Z', '+00:00'))
-                    else:
-                        exit_date = datetime.strptime(exit_date_str, "%Y-%m-%d")
-                    days_left = max(0, (exit_date - current_date).days)
-            except Exception as e:
-                logger.warning(f"Error calculating days left: {str(e)}")
-                days_left = strategy.get('holding_period_days', 5)
-            
-            # Format values
-            symbol = strategy.get('symbol', 'N/A')
-            company_name = strategy.get('company_name', '')
-            current_price = float(strategy.get('current_price', 0))
-            target_price = float(strategy.get('target_price', 0))
-            stop_loss = float(strategy.get('stop_loss', 0))
-            risk_reward = float(strategy.get('risk_reward_ratio', 0))
-            
-            # Create row
-            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8, 0.8])
-            
-            with col1:
-                if company_name:
-                    st.markdown(f"**{symbol}** - {company_name}")
-                else:
-                    st.markdown(f"**{symbol}**")
-            with col2:
-                st.markdown(f"₹{current_price:.2f}")
-            with col3:
-                st.markdown(f"₹{target_price:.2f}")
+                # Summary metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Strategies", len(swing_strategies))
+                
+                with col2:
+                    high_confidence = len([s for s in swing_strategies if s.get('confidence', 0) >= 80])
+                    st.metric("High Confidence", high_confidence)
+                
+                with col3:
+                    avg_risk_reward = sum(s.get('risk_reward_ratio', 0) for s in swing_strategies) / len(swing_strategies)
+                    st.metric("Avg Risk-Reward", f"{avg_risk_reward:.2f}:1")
+                
                 with col4:
-                    st.markdown(f"₹{stop_loss:.2f}")
-                with col5:
-                    st.markdown(f"{days_left}d")
-                with col6:
-                    st.markdown(f"{risk_reward:.2f}:1")
-            with col7:
-                st.markdown("**Details**")
-            with col8:
-                st.markdown("**Actions**")
-            
-            st.markdown("---")
-            
-            # Display swing strategies in rows
-            for i, strategy in enumerate(swing_strategies):
-                # Display the strategy row
-                ExpandableUI.display_swing_strategy_row(strategy, i)
+                    # Calculate days to expiry
+                    current_date = datetime.now()
+                    total_days = 0
+                    for strategy in swing_strategies:
+                        try:
+                            exit_date = datetime.fromisoformat(strategy.get('expected_exit_date', '').replace('Z', '+00:00'))
+                            days_remaining = (exit_date - current_date).days
+                            total_days += max(0, days_remaining)
+                        except:
+                            total_days += 7  # Default 7 days
+                    avg_days = total_days / len(swing_strategies) if swing_strategies else 0
+                    st.metric("Avg Days Left", f"{avg_days:.0f}")
                 
-                # Check if add to watchlist button was clicked
-                if st.session_state.get(f"add_swing_to_watchlist_{i}", False):
-                    # Convert swing strategy to recommendation format for watchlist
-                    watchlist_item = {
-                        'symbol': strategy.get('symbol', ''),
-                        'company_name': strategy.get('company_name', ''),
-                        'current_price': strategy.get('current_price', 0),
-                        'recommendation': 'BUY',
-                        'confidence': strategy.get('confidence', 0),
-                        'target_price': strategy.get('take_profit', 0),
-                        'stop_loss': strategy.get('stop_loss', 0),
-                        'reasoning': f"Swing trading strategy: {strategy.get('strategy_name', '')}",
-                        'created_at': datetime.now().isoformat()
-                    }
-                    self.add_to_watchlist(watchlist_item)
-                    st.session_state[f"add_swing_to_watchlist_{i}"] = False
-                    st.rerun()
-            
-            # Add a message if no strategies are available
-            if not swing_strategies:
+                st.markdown("---")
+                
+                # Header row with consistent alignment
+                col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 0.8, 1, 0.8, 0.8])
+                with col1:
+                    st.markdown("**Stock**")
+                with col2:
+                    st.markdown("**Entry (₹)**")
+                with col3:
+                    st.markdown("**Take Profit (₹)**")
+                with col4:
+                    st.markdown("**Stop Loss (₹)**")
+                with col5:
+                    st.markdown("**Days**")
+                with col6:
+                    st.markdown("**Risk/Reward**")
+                with col7:
+                    st.markdown("**Details**")
+                with col8:
+                    st.markdown("**Actions**")
+                
+                st.markdown("<hr style='margin: 0.5rem 0;'/>", unsafe_allow_html=True)
+                
+                # Display swing strategies in rows
+                for i, strategy in enumerate(swing_strategies):
+                    # Get the values with proper fallbacks
+                    symbol = strategy.get('symbol', 'UNKNOWN')
+                    company_name = strategy.get('company_name', '')
+                    current_price = strategy.get('current_price', 0)
+                    
+                    # Get entry/exit levels with proper fallbacks
+                    entry_price = strategy.get('entry_price', current_price)
+                    take_profit = strategy.get('take_profit', 0)
+                    stop_loss = strategy.get('stop_loss', 0)
+                    
+                    # If we have a 'levels' dictionary, use those values
+                    if 'levels' in strategy and isinstance(strategy['levels'], dict):
+                        entry_price = strategy['levels'].get('entry_price', entry_price)
+                        take_profit = strategy['levels'].get('take_profit', take_profit)
+                        stop_loss = strategy['levels'].get('stop_loss', stop_loss)
+                    
+                    # Ensure we have valid values
+                    entry_price = entry_price or current_price
+                    take_profit = take_profit or (entry_price * 1.02)  # Default 2% take profit
+                    stop_loss = stop_loss or (entry_price * 0.98)  # Default 2% stop loss
+                    
+                    # Update the strategy dictionary with the calculated values
+                    strategy.update({
+                        'entry_price': entry_price,
+                        'take_profit': take_profit,
+                        'stop_loss': stop_loss,
+                        'current_price': current_price
+                    })
+                    
+                    # Display the row
+                    ExpandableUI.display_swing_strategy_row(strategy, i)
+                    
+                    # Check if add to watchlist button was clicked
+                    if st.session_state.get(f"add_swing_to_watchlist_{i}", False):
+                        # Convert swing strategy to recommendation format for watchlist
+                        watchlist_item = {
+                            'symbol': symbol,
+                            'company_name': company_name,
+                            'current_price': current_price,
+                            'recommendation': 'BUY',
+                            'confidence': strategy.get('confidence', 0),
+                            'target_price': take_profit,
+                            'stop_loss': stop_loss,
+                            'entry_price': entry_price,
+                            'reasoning': f"Swing trading strategy: {strategy.get('strategy_name', '')}",
+                            'created_at': datetime.now().isoformat()
+                        }
+                        self.add_to_watchlist(watchlist_item)
+                        st.session_state[f"add_swing_to_watchlist_{i}"] = False
+                        st.rerun()
+            else:
                 st.info("No swing trading plans available. Generate BUY recommendations first.")
+        else:
+            st.info("No swing trading plans available. Generate BUY recommendations first.")
     
     def watchlist_tab(self):
         """Watchlist tab."""
@@ -2211,139 +1480,52 @@ class StreamlitTradingApp:
             
             st.markdown("---")
             
-            # Header row
-            col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8])
-            with col1:
-                st.markdown("**Stock**")
-            with col2:
-                st.markdown("**Entry Price**")
-            with col3:
-                st.markdown("**CMP**")
-            with col4:
-                st.markdown("**P&L**")
-            with col5:
-                st.markdown("**Date Added**")
-            with col6:
-                st.markdown("**Status**")
-            with col7:
-                st.markdown("**Details**")
+            # Add sorting controls
+            sort_col1, sort_col2 = st.columns(2)
+            with sort_col1:
+                sort_by = st.selectbox(
+                    "Sort by",
+                    ["Date Added", "Symbol", "P&L %", "Current Price", "Entry Price", "Status"],
+                    key="watchlist_sort_by"
+                )
+            with sort_col2:
+                sort_order = st.radio(
+                    "Order",
+                    ["Ascending", "Descending"],
+                    index=1,  # Default to descending for most useful sort orders
+                    horizontal=True,
+                    key="watchlist_sort_order"
+                )
             
-            st.markdown("---")
+            # Sort the watchlist
+            sorted_watchlist = st.session_state.watchlist.copy()
+            reverse_sort = (sort_order == "Descending")
             
-            # Sort watchlist by date added (newest first)
-            sorted_watchlist = sorted(
-                st.session_state.watchlist,
-                key=lambda x: x.get('added_date', ''),
-                reverse=True
-            )
+            if sort_by == "Symbol":
+                sorted_watchlist.sort(key=lambda x: x.get('symbol', '').upper(), reverse=reverse_sort)
+            elif sort_by == "P&L %":
+                sorted_watchlist.sort(
+                    key=lambda x: (
+                        (x.get('current_price', 0) - x.get('entry_price', 0)) / x.get('entry_price', 1) 
+                        if x.get('entry_price', 0) > 0 else 0
+                    ),
+                    reverse=reverse_sort
+                )
+            elif sort_by == "Current Price":
+                sorted_watchlist.sort(key=lambda x: x.get('current_price', 0), reverse=reverse_sort)
+            elif sort_by == "Entry Price":
+                sorted_watchlist.sort(key=lambda x: x.get('entry_price', 0), reverse=reverse_sort)
+            elif sort_by == "Status":
+                sorted_watchlist.sort(key=lambda x: x.get('status', ''), reverse=not reverse_sort)
+            else:  # Default sort by Date Added
+                sorted_watchlist.sort(
+                    key=lambda x: x.get('added_date', ''), 
+                    reverse=not reverse_sort  # Most recent first by default
+                )
             
-            # Display watchlist items in rows with delete functionality
+            # Display sorted watchlist items in rows
             for i, item in enumerate(sorted_watchlist):
-                col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8])
-                
-                # Format date added
-                date_added = item.get('added_date', '')
-                try:
-                    if date_added:
-                        # Parse ISO format date and format it nicely
-                        date_obj = datetime.fromisoformat(date_added.replace('Z', '+00:00'))
-                        formatted_date = date_obj.strftime('%d %b %Y')
-                    else:
-                        formatted_date = 'N/A'
-                except (ValueError, AttributeError):
-                    formatted_date = 'N/A'
-                
-                # Display the row using the existing component
-                with col1:
-                    st.markdown(f"**{item.get('symbol', 'N/A')}**")
-                    if item.get('company_name'):
-                        st.caption(item['company_name'])
-                
-                with col2:
-                    st.text(f"₹{item.get('entry_price', 0):.2f}")
-                
-                with col3:
-                    st.text(f"₹{item.get('current_price', 0):.2f}")
-                
-                with col4:
-                    # Calculate P&L
-                    entry = item.get('entry_price', 0)
-                    current = item.get('current_price', 0)
-                    if entry > 0:
-                        pnl = ((current - entry) / entry) * 100
-                        pnl_color = "green" if pnl >= 0 else "red"
-                        st.markdown(f"<span style='color: {pnl_color}'>{pnl:+.2f}%</span>", unsafe_allow_html=True)
-                    else:
-                        st.text("N/A")
-                
-                with col5:
-                    added_date = item.get('added_date', '')
-                    if added_date:
-                        try:
-                            # Handle ISO format with timezone
-                            if 'T' in added_date:
-                                date_str = added_date.split('T')[0]
-                                date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
-                                st.text(date_obj.strftime('%b %d, %Y'))
-                            # Handle other date formats if needed
-                            elif ' ' in added_date:
-                                date_obj = datetime.strptime(added_date.split()[0], '%Y-%m-%d').date()
-                                st.text(date_obj.strftime('%b %d, %Y'))
-                            else:
-                                st.text(added_date[:10])
-                        except Exception as e:
-                            st.text(added_date[:10])
-                    else:
-                        st.text("N/A")
-                
-                with col6:
-                    status = item.get('status', 'ACTIVE')
-                    status_color = "green" if status == 'ACTIVE' else "orange" if status == 'WATCH' else "red"
-                    st.markdown(f"<span style='color: {status_color}'>{status}</span>", unsafe_allow_html=True)
-                
-                with col7:
-                    # Create a container for the action buttons
-                    btn_container = st.container()
-                    with btn_container:
-                        col_btn1, col_btn2 = st.columns(2)
-                        
-                        # Details button
-                        with col_btn1:
-                            if st.button("🔍", key=f"details_watch_{i}", help="View details"):
-                                st.session_state.selected_watchlist_item = item
-                                st.session_state.show_watchlist_details = True
-                        
-                        # Delete button with confirmation
-                        with col_btn2:
-                            if st.button("🗑️", key=f"delete_watch_{i}", 
-                                       help="Remove from watchlist",
-                                       type="secondary"):
-                                # Store the index to delete after confirmation
-                                st.session_state.pending_delete_index = i
-                                st.session_state.pending_delete_symbol = item.get('symbol', 'this stock')
-                    
-                    # Show confirmation dialog if this item is pending deletion
-                    if st.session_state.get('pending_delete_index') == i:
-                        st.warning(f"⚠️ Remove {st.session_state.pending_delete_symbol} from watchlist?")
-                        col_confirm, col_cancel = st.columns(2)
-                        with col_confirm:
-                            if st.button("✅ Yes, remove", key=f"confirm_delete_{i}"):
-                                symbol = st.session_state.watchlist[i].get('symbol', 'this stock')
-                                st.session_state.watchlist.pop(i)
-                                self._auto_save_watchlist()
-                                del st.session_state.pending_delete_index
-                                del st.session_state.pending_delete_symbol
-                                st.success(f"✅ Removed {symbol} from watchlist!")
-                                st.rerun()
-                        with col_cancel:
-                            if st.button("❌ Cancel", key=f"cancel_delete_{i}"):
-                                if 'pending_delete_index' in st.session_state:
-                                    del st.session_state.pending_delete_index
-                                if 'pending_delete_symbol' in st.session_state:
-                                    del st.session_state.pending_delete_symbol
-                                st.rerun()
-                
-                st.markdown("---")
+                ExpandableUI.display_watchlist_row(item, i)
         else:
             st.info("No stocks in watchlist. Add stocks from recommendations or manual analysis.")
     
@@ -2358,27 +1540,6 @@ class StreamlitTradingApp:
         confidence = item.get('confidence', 0)
         performance_pct = item.get('performance_pct', 0)
         
-        # Format date added
-        date_added = item.get('added_date', '')
-        try:
-            if date_added:
-                # Parse ISO format date and format it nicely
-                date_obj = datetime.fromisoformat(date_added.replace('Z', '+00:00'))
-                formatted_date = date_obj.strftime('%d %b %Y')
-            else:
-                formatted_date = 'N/A'
-        except (ValueError, AttributeError):
-            formatted_date = 'N/A'
-        
-        # Calculate days since added
-        days_since_added = None
-        try:
-            if date_added:
-                date_obj = datetime.fromisoformat(date_added.replace('Z', '+00:00'))
-                days_since_added = (datetime.now() - date_obj).days
-        except (ValueError, AttributeError):
-            pass
-        
         # Performance color
         perf_color = "green" if performance_pct > 0 else "red" if performance_pct < 0 else "gray"
         
@@ -2387,7 +1548,7 @@ class StreamlitTradingApp:
         with col1:
             st.markdown(f"""
             <div class="metric-card">
-                <h4>📈 {symbol} <span style="font-size: 0.8em; color: #666;">(Added: {formatted_date}{f', {days_since_added} days ago' if days_since_added is not None else ''})</span></h4>
+                <h4>📈 {symbol}</h4>
                 <p><strong>Current:</strong> ₹{current_price:.2f} | 
                 <strong>Entry:</strong> ₹{entry_price:.2f} | 
                 <strong>Performance:</strong> <span style="color: {perf_color}">{performance_pct:+.2f}%</span></p>
@@ -2437,7 +1598,205 @@ class StreamlitTradingApp:
     def portfolio_tab(self):
         """Portfolio tab."""
         st.header("📊 Portfolio Tracking")
-        st.info("Portfolio tracking feature will be implemented in future updates.")
+        
+        # Check if portfolio exists in session state, initialize if not
+        if 'portfolio' not in st.session_state:
+            st.session_state.portfolio = []
+        
+        # Add new stock to portfolio
+        with st.expander("➕ Add Stock to Portfolio"):
+            with st.form("add_stock_form"):
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    symbol = st.text_input("Symbol", "", help="Stock symbol (e.g., RELIANCE.NS)")
+                with col2:
+                    quantity = st.number_input("Quantity", min_value=1, value=1, step=1)
+                with col3:
+                    buy_price = st.number_input("Buy Price (₹)", min_value=0.01, value=100.0, step=0.01)
+                with col4:
+                    buy_date = st.date_input("Buy Date", value=datetime.now())
+                
+                if st.form_submit_button("Add to Portfolio"):
+                    if symbol:
+                        # Get current price
+                        try:
+                            stock = yf.Ticker(symbol)
+                            current_price = stock.history(period='1d')['Close'].iloc[-1]
+                            
+                            # Add to portfolio
+                            st.session_state.portfolio.append({
+                                'symbol': symbol.upper(),
+                                'quantity': quantity,
+                                'buy_price': buy_price,
+                                'current_price': current_price,
+                                'buy_date': buy_date.isoformat(),
+                                'last_updated': datetime.now().isoformat()
+                            })
+                            st.success(f"Added {symbol.upper()} to portfolio!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error adding stock: {str(e)}")
+        
+        # Display portfolio summary
+        if st.session_state.portfolio:
+            # Update current prices
+            if st.button("🔄 Update Prices", key="update_portfolio_prices"):
+                with st.spinner("Updating prices..."):
+                    for item in st.session_state.portfolio:
+                        try:
+                            stock = yf.Ticker(item['symbol'])
+                            item['current_price'] = stock.history(period='1d')['Close'].iloc[-1]
+                            item['last_updated'] = datetime.now().isoformat()
+                        except:
+                            pass
+                st.rerun()
+            
+            # Calculate portfolio metrics
+            total_investment = sum(item['quantity'] * item['buy_price'] for item in st.session_state.portfolio)
+            current_value = sum(item['quantity'] * item.get('current_price', item['buy_price']) for item in st.session_state.portfolio)
+            total_pnl = current_value - total_investment
+            total_pnl_pct = (total_pnl / total_investment * 100) if total_investment > 0 else 0
+            
+            # Display summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Investment", f"₹{total_investment:,.2f}")
+            with col2:
+                st.metric("Current Value", f"₹{current_value:,.2f}")
+            with col3:
+                st.metric("Total P&L", 
+                         f"₹{total_pnl:+,.2f}", 
+                         f"{total_pnl_pct:+.2f}%",
+                         delta_color="normal" if total_pnl >= 0 else "inverse")
+            
+            # Add sorting controls
+            st.markdown("### Your Portfolio")
+            sort_col1, sort_col2 = st.columns(2)
+            with sort_col1:
+                sort_by = st.selectbox(
+                    "Sort by",
+                    ["Symbol", "P&L %", "Current Value", "Quantity", "Buy Date"],
+                    key="portfolio_sort_by"
+                )
+            with sort_col2:
+                sort_order = st.radio(
+                    "Order",
+                    ["Ascending", "Descending"],
+                    index=1,  # Default to descending for most useful sort orders
+                    horizontal=True,
+                    key="portfolio_sort_order"
+                )
+            
+            # Sort the portfolio
+            sorted_portfolio = st.session_state.portfolio.copy()
+            reverse_sort = (sort_order == "Descending")
+            
+            if sort_by == "Symbol":
+                sorted_portfolio.sort(key=lambda x: x.get('symbol', '').upper(), reverse=reverse_sort)
+            elif sort_by == "P&L %":
+                sorted_portfolio.sort(
+                    key=lambda x: (
+                        (x.get('current_price', 0) - x.get('buy_price', 0)) / x.get('buy_price', 1) 
+                        if x.get('buy_price', 0) > 0 else 0
+                    ),
+                    reverse=reverse_sort
+                )
+            elif sort_by == "Current Value":
+                sorted_portfolio.sort(
+                    key=lambda x: x.get('quantity', 0) * x.get('current_price', 0), 
+                    reverse=reverse_sort
+                )
+            elif sort_by == "Quantity":
+                sorted_portfolio.sort(key=lambda x: x.get('quantity', 0), reverse=reverse_sort)
+            else:  # Buy Date
+                sorted_portfolio.sort(
+                    key=lambda x: x.get('buy_date', ''), 
+                    reverse=not reverse_sort  # Most recent first by default
+                )
+            
+            # Display portfolio table
+            st.markdown("""
+            <style>
+            .portfolio-table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+            .portfolio-table th, .portfolio-table td {
+                padding: 8px 12px;
+                text-align: left;
+                border-bottom: 1px solid #444;
+            }
+            .portfolio-table th {
+                background-color: #2d2d2d;
+                font-weight: bold;
+            }
+            .positive { color: #28a745; }
+            .negative { color: #dc3545; }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Table header
+            st.markdown("""
+            <table class="portfolio-table">
+                <tr>
+                    <th>Symbol</th>
+                    <th>Quantity</th>
+                    <th>Avg. Buy Price</th>
+                    <th>Current Price</th>
+                    <th>P&L</th>
+                    <th>Value</th>
+                    <th>Actions</th>
+                </tr>
+            """, unsafe_allow_html=True)
+            
+            # Table rows
+            for item in sorted_portfolio:
+                symbol = item['symbol']
+                quantity = item['quantity']
+                buy_price = item['buy_price']
+                current_price = item.get('current_price', buy_price)
+                pnl = (current_price - buy_price) * quantity
+                pnl_pct = ((current_price - buy_price) / buy_price * 100) if buy_price > 0 else 0
+                value = quantity * current_price
+                
+                pnl_class = "positive" if pnl >= 0 else "negative"
+                pnl_sign = "+" if pnl >= 0 else ""
+                
+                st.markdown(f"""
+                <tr>
+                    <td><strong>{symbol}</strong></td>
+                    <td>{quantity:,}</td>
+                    <td>₹{buy_price:,.2f}</td>
+                    <td>₹{current_price:,.2f}</td>
+                    <td class="{pnl_class}">{pnl_sign}₹{abs(pnl):,.2f} ({pnl_sign}{abs(pnl_pct):.2f}%)</td>
+                    <td>₹{value:,.2f}</td>
+                    <td>
+                        <button onclick=\"
+                            const index = Array.from(document.querySelectorAll('td:first-child')).findIndex(td => td.textContent === \"{symbol}\");
+                            if (index !== -1) {{
+                                const deleteBtn = document.querySelectorAll('button[data-action=delete]')[index];
+                                deleteBtn.click();
+                            }}\" 
+                        style=\"background: none; border: none; color: #dc3545; cursor: pointer;\">
+                            🗑️
+                        </button>
+                    </td>
+                </tr>
+                """, unsafe_allow_html=True)
+                
+                # Handle delete action
+                if st.button("🗑️", key=f"delete_{symbol}", help=f"Remove {symbol} from portfolio", 
+                           type="secondary", use_container_width=True, data_action="delete"):
+                    st.session_state.portfolio = [p for p in st.session_state.portfolio if p['symbol'] != symbol]
+                    st.rerun()
+            
+            st.markdown("</table>", unsafe_allow_html=True)
+            
+            # Add some spacing
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            
+        else:
+            st.info("Your portfolio is empty. Add stocks to get started!")
     
     def notifications_tab(self):
         """Notifications management tab."""
@@ -3212,13 +2571,8 @@ class StreamlitTradingApp:
                                 'swing_validation': validation
                             }
                             
-                            # Check if this symbol already exists in recommendations
-                            symbol_exists = any(r.get('symbol') == symbol for r in news_recommendations)
-                            if not symbol_exists:
-                                news_recommendations.append(rec_data)
-                                logger.info(f"Added BUY recommendation with swing plan for {symbol}")
-                            else:
-                                logger.info(f"Skipped duplicate recommendation for {symbol}")
+                            news_recommendations.append(rec_data)
+                            logger.info(f"Added BUY recommendation with swing plan for {symbol}")
                         else:
                             logger.info(f"Skipped {symbol} - not a BUY recommendation")
                         
@@ -3231,17 +2585,13 @@ class StreamlitTradingApp:
                 
                 # Set final recommendations
                 st.session_state.recommendations = news_recommendations
-                current_date = datetime.now()
-                st.session_state.last_analysis_time = current_date.strftime("%Y-%m-%d %H:%M:%S")
+                st.session_state.last_analysis_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                # Save to database with current date
-                date_str = current_date.strftime("%Y-%m-%d")
-                self.save_recommendations(date_str)
+                # Save to database if available
+                self.save_recommendations()
                 
                 # Auto-save recommendations and swing strategies
                 self._auto_save_recommendations()
-                
-                logger.info(f"Successfully generated and saved {len(news_recommendations)} recommendations for {date_str}")
                 self._auto_save_buy_recommendations()  # Specifically save BUY recommendations date-wise
                 self._auto_save_swing_strategies()
                 
@@ -3797,65 +3147,29 @@ class StreamlitTradingApp:
             else:
                 st.info("No Gemini AI analysis available")
     
-    def save_recommendations(self, date_str: str = None):
-        """Save recommendations to database with proper date handling."""
-        if not hasattr(st.session_state, 'recommendations') or not st.session_state.recommendations:
-            logger.warning("No recommendations to save")
-            return False
-            
+    def save_recommendations(self):
+        """Save recommendations to database."""
         try:
-            # Use current date if not provided
-            if not date_str:
-                date_str = datetime.now().strftime("%Y-%m-%d")
-                
-            # Prepare recommendations for saving
-            recommendations_to_save = []
-            for rec in st.session_state.recommendations:
-                if not isinstance(rec, dict) or 'symbol' not in rec:
-                    continue
-                    
-                # Create a clean copy with only the necessary fields
-                rec_copy = {
-                    'symbol': rec.get('symbol', ''),
-                    'company_name': rec.get('company_name', ''),
-                    'current_price': float(rec.get('current_price', 0)),
-                    'recommendation': rec.get('recommendation', 'HOLD'),
-                    'confidence': float(rec.get('confidence', 0)),
-                    'target_price': float(rec.get('target_price', 0)),
-                    'stop_loss': float(rec.get('stop_loss', 0)),
-                    'reasoning': rec.get('reasoning', 'No reasoning provided'),
-                    'technical_data': rec.get('technical_data', {}),
-                    'fundamental_data': rec.get('fundamental_data', {}),
-                    'groq_analysis': rec.get('groq_analysis', {}),
-                    'gemini_analysis': rec.get('gemini_analysis', {}),
-                    'swing_plan': rec.get('swing_plan', {}),
-                    'swing_validation': rec.get('swing_validation', {}),
-                    'created_at': rec.get('created_at', datetime.now().isoformat())
-                }
-                recommendations_to_save.append(rec_copy)
+            if not st.session_state.recommendations:
+                st.warning("No recommendations to save")
+                return
             
-            # Save to data persistence
-            if recommendations_to_save:
-                # Save to local storage
-                success = st.session_state.data_persistence.save_recommendations(recommendations_to_save, date_str)
-                if success:
-                    logger.info(f"Successfully saved {len(recommendations_to_save)} recommendations for {date_str}")
+            # Save to local database if available
+            if hasattr(self, 'recommendation_db') and self.recommendation_db:
+                if self.recommendation_db.save_recommendations(st.session_state.recommendations, 'enhanced'):
+                    st.success("✅ Recommendations saved to local database")
                 else:
-                    logger.error(f"Failed to save recommendations for {date_str}")
-                
-                # Save to Firebase if available
-                if hasattr(st.session_state, 'firebase_available') and st.session_state.firebase_available and hasattr(self, 'firebase_sync'):
-                    if self.firebase_sync.sync_recommendations(recommendations_to_save, date_str):
-                        logger.info(f"Recommendations synced to Firebase for {date_str}")
-                    else:
-                        logger.warning("Failed to sync recommendations to Firebase")
-                
-                return success
-            return False
+                    st.warning("⚠️ Failed to save to local database")
+            
+            # Save to Firebase if available
+            if st.session_state.firebase_available and hasattr(self, 'firebase_sync'):
+                if self.firebase_sync.sync_recommendations(st.session_state.recommendations, "enhanced"):
+                    st.success("✅ Recommendations synced to Firebase")
+                else:
+                    st.warning("⚠️ Failed to sync to Firebase")
             
         except Exception as e:
-            logger.error(f"Error saving recommendations: {str(e)}")
-            return False
+            st.error(f"❌ Error saving recommendations: {str(e)}")
 
 def main():
     """Main function to run the Streamlit app."""

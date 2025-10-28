@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
 """
 News Analyzer Component
-News analysis and sentiment calculation.
+News analysis and sentiment calculation with Indian stock filtering.
 """
 
+import os
+import csv
+import time
 import requests
 import feedparser
 from textblob import TextBlob
 import logging
-from typing import Dict, List
+from typing import Dict, List, Set
 from datetime import datetime, timedelta
 import re
 from bs4 import BeautifulSoup
+
+# Get the directory of the current file
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# Path to the EQUITY_L.csv file (assuming it's in the parent directory)
+EQUITY_CSV_PATH = os.path.join(current_dir, '..', 'EQUITY_L.csv')
 
 logger = logging.getLogger(__name__)
 
@@ -29,41 +37,257 @@ class NewsAnalyzer:
             'https://in.investing.com/rss/news_14.rss'       # Indian Market Analysis
         ]
         
-        # Initialize equity loader for stock symbol validation
-        try:
-            from .equity_loader import EquityLoader
-            self.equity_loader = EquityLoader()
-            logger.info("Equity loader initialized successfully")
-        except Exception as e:
-            logger.warning(f"Could not initialize equity loader: {str(e)}")
-            self.equity_loader = None
+        # Set a user agent to prevent 403 Forbidden errors
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        feedparser.USER_AGENT = self.headers['User-Agent']
         
-        logger.info("News Analyzer initialized with Indian stock market RSS feeds only")
+        # Terms that indicate non-Indian market news
+        self.exclude_terms = [
+            # US markets
+            'wall street', 'nasdaq', 'nyse', 'dow jones', 's&p 500', 's&p500',
+            'federal reserve', 'fed rate', 'fomc', 'usd', 'dollar index',
+            'treasury yields', 'us inflation', 'us cpi', 'us jobs report',
+            
+            # European markets
+            'euro', 'eurozone', 'ecb', 'european central bank', 'frankfurt',
+            'dax', 'cac', 'ftse', 'london', 'paris', 'frankfurt', 'european union',
+            'brexit', 'boe', 'bank of england', 'ecb meeting', 'euro stoxx',
+            
+            # Asian markets (excluding India)
+            'hong kong', 'hang seng', 'nikkei', 'shanghai', 'shenzhen', 'tokyo',
+            'japan', 'china', 'beijing', 'shanghai composite', 'csi 300',
+            'taiwan', 'south korea', 'kospi', 'kosdaq', 'australia', 'asx',
+            'singapore', 'straits times', 'jakarta', 'indonesia', 'thailand',
+            'malaysia', 'philippines', 'vietnam',
+            
+            # Other regions
+            'mexico', 'brazil', 'russia', 'ukraine', 'middle east', 'dubai',
+            'saudi arabia', 'uae', 'qatar', 'africa', 'south africa', 'jse',
+            'canada', 'tsx', 'toronto', 'latin america', 'argentina', 'chile',
+            
+            # Generic terms that often appear in non-Indian context
+            'futures', 'pre-market', 'premarket', 'after hours', 'fed chair',
+            'treasury secretary', 'white house', 'washington', 'london', 'uk',
+            'europe', 'asia', 'pacific', 'new york', 'chicago', 'chicago fed',
+            'us stocks', 'american stocks', 'european stocks', 'asian stocks',
+            'global markets', 'international markets'
+        ]
+        
+        # Terms that indicate Indian market news (must include at least one of these)
+        self.india_indicators = [
+            # Stock exchanges and indices
+            'nse', 'bse', 'nifty', 'sensex', 'nifty 50', 'sensex 30',
+            'nifty bank', 'bank nifty', 'nifty it', 'nifty auto',
+            'nifty pharma', 'nifty psu bank', 'nifty metal', 'nifty realty',
+            'nifty midcap', 'nifty smallcap', 'nifty 500', 'nifty next 50',
+            'bombay stock exchange', 'national stock exchange',
+            
+            # Indian market terms
+            'indian market', 'indian stock market', 'indian shares',
+            'indian equities', 'indian stocks', 'indian investors',
+            'indian economy', 'rbi', 'reserve bank of india',
+            'sebi', 'securities and exchange board of india',
+            'finance ministry', 'union budget', 'gst council', 'gst rates',
+            'direct tax', 'indirect tax', 'fdi', 'fii', 'dii',
+            'foreign institutional investors', 'domestic institutional investors',
+            
+            # Common Indian company name suffixes
+            'ltd', 'limited', '& co', '& co.', '& company', 'industries',
+            'corporation', 'labs', 'pharmaceuticals', 'technologies',
+            'consultancy', 'solutions', 'services', 'enterprises',
+            
+            # Common Indian cities and financial centers
+            'mumbai', 'delhi', 'bangalore', 'bengaluru', 'chennai', 'kolkata',
+            'hyderabad', 'pune', 'ahmedabad', 'gurgaon', 'noida', 'gurugram',
+            'maharastra', 'karnataka', 'tamil nadu', 'west bengal', 'delhi ncr'
+        ]
+        
+        # Load Indian stock symbols
+        self.indian_stocks = self._load_indian_stock_symbols()
+        logger.info(f"News Analyzer initialized with {len(self.indian_stocks)} Indian stock symbols")
+        
+        # Cache for storing recommendations
+        self._recommendations_cache = None
+        self._last_update_time = None
+        self._cache_duration = 3600  # 1 hour cache duration
     
-    def fetch_news(self) -> List[Dict]:
-        """Fetch news from various sources."""
+    def _load_indian_stock_symbols(self) -> Set[str]:
+        """Load Indian stock symbols from EQUITY_L.csv"""
+        stocks = set()
         try:
-            articles = []
-            for source in self.news_sources:
-                try:
-                    feed = feedparser.parse(source)
-                    for entry in feed.entries[:10]:  # Limit to 10 per source
+            with open(EQUITY_CSV_PATH, 'r', encoding='utf-8') as file:
+                reader = csv.DictReader(file)
+                for row in reader:
+                    # Add both symbol and company name for better matching
+                    symbol = row.get('SYMBOL', '').strip()
+                    company_name = row.get('NAME OF COMPANY', '').strip()
+                    if symbol:
+                        stocks.add(symbol.upper())
+                    # Add first word of company name for better matching
+                    first_word = company_name.split()[0].upper()
+                    if len(first_word) > 2:  # Only add if it's a meaningful word
+                        stocks.add(first_word)
+            logger.info(f"Loaded {len(stocks)} stock symbols and company names")
+        except Exception as e:
+            logger.error(f"Error loading stock symbols: {str(e)}")
+        return stocks
+    
+    def _is_relevant_news(self, text: str) -> bool:
+        """Check if the text is relevant Indian market news with strict filtering"""
+        if not text or len(text.strip()) < 20:  # Skip very short texts
+            return False
+            
+        text_lower = text.lower()
+        text_upper = text.upper()
+        
+        # Skip if contains any non-Indian market terms
+        for term in self.exclude_terms:
+            if term in text_lower:
+                return False
+        
+        # Must contain at least one Indian market indicator
+        has_india_indicator = any(
+            re.search(r'\b' + re.escape(term) + r'\b', text_lower)
+            for term in self.india_indicators
+        )
+        
+        # Must contain at least one Indian stock symbol (3+ characters to avoid false positives)
+        has_indian_stock = any(
+            len(stock) >= 3 and 
+            re.search(r'\b' + re.escape(stock) + r'\b', text_upper)
+            for stock in self.indian_stocks
+        )
+        
+        # Must contain at least one of the required indicators
+        if not (has_india_indicator or has_indian_stock):
+            return False
+            
+        # Additional checks for false positives
+        if self._is_false_positive(text_lower):
+            return False
+            
+        return True
+        
+    def _is_false_positive(self, text_lower: str) -> bool:
+        """Check for common false positives in news text"""
+        # Common patterns that might slip through initial filters
+        false_positives = [
+            # Common words that might match stock symbols
+            r'\b(?:the|and|for|with|from|this|that|have|has|had|will|would)\b',
+            
+            # Common abbreviations that might match stock symbols
+            r'\b(?:it|its|me|my|we|us|our|you|your|they|them|their)\b',
+            
+            # Common words in financial news that aren't specific to India
+            r'\b(?:market|stock|stocks|share|shares|trading|investor|investors|price|prices|index|indices)\b',
+            
+            # Common verbs that might match stock symbols
+            r'\b(?:has|have|had|was|were|are|is|be|being|been|do|does|did|will|would|should|could|can|may|might|must)\b',
+            
+            # Common prepositions and articles
+            r'\b(?:in|on|at|by|for|of|to|with|about|as|into|like|through|after|over|between|out|against|during|before|above|below|from|up|down|in|out|on|off|over|under|again|further|then|once|here|there|when|where|why|how|all|any|both|each|few|more|most|other|some|such|no|nor|not|only|own|same|so|than|too|very|s|t|can|will|just|don|should|now|d|ll|m|o|re|ve|y|ain|aren|could|didn|doesn|hadn|hasn|haven|isn|ma|mightn|mustn|needn|shan|shouldn|wasn|weren|won|wouldn)\b'
+        ]
+        
+        # If the text only contains common words, it's likely not relevant
+        common_word_ratio = sum(
+            bool(re.search(pattern, text_lower, re.IGNORECASE))
+            for pattern in false_positives
+        ) / max(1, len(text_lower.split()))
+        
+        return common_word_ratio > 0.7  # If more than 70% of words are common, likely not relevant
+    
+    def fetch_news(self, force_refresh: bool = False) -> List[Dict]:
+        """Fetch and filter news related to Indian stocks with caching."""
+        # Return cached results if they exist and are fresh
+        current_time = time.time()
+        if (not force_refresh and self._recommendations_cache and 
+            self._last_update_time and 
+            (current_time - self._last_update_time) < self._cache_duration):
+            logger.info("Returning cached news articles")
+            return self._recommendations_cache
+            
+        articles = []
+        
+        for source in self.news_sources:
+            try:
+                # Add a small delay between requests to avoid rate limiting
+                time.sleep(1)
+                
+                # Parse the feed with custom headers
+                feed = feedparser.parse(source, request_headers=self.headers)
+                
+                # Skip if no entries found
+                if not feed.entries:
+                    logger.debug(f"No entries found in {source}")
+                    continue
+                    
+                for entry in feed.entries[:15]:  # Check more entries to find relevant ones
+                    try:
+                        # Get and clean the content
+                        title = entry.get('title', '').strip()
+                        description = entry.get('summary', entry.get('description', ''))
+                        description = re.sub(r'<[^>]+>', '', description).strip()  # Remove HTML tags
+                        
+                        # Skip if title or description is too short
+                        if len(title) < 10 or len(description) < 20:
+                            continue
+                            
+                        # Combine title and description for better matching
+                        content = f"{title} {description}"
+                        
+                        # Skip if not relevant Indian market news
+                        if not self._is_relevant_news(content):
+                            continue
+                        
+                        # Extract mentioned stocks (only those with length > 3 to avoid false positives)
+                        mentioned_stocks = []
+                        content_upper = content.upper()
+                        for stock in self.indian_stocks:
+                            if len(stock) > 3 and re.search(r'\b' + re.escape(stock) + r'\b', content_upper):
+                                mentioned_stocks.append(stock)
+                        
+                        # Skip if no stocks were mentioned (shouldn't happen due to _is_relevant_news check)
+                        if not mentioned_stocks:
+                            continue
+                        
+                        # Clean up the title (remove source names, etc.)
+                        clean_title = re.sub(r'\s*-\s*\w+(\.\w+)*\s*$', '', title)
+                        
                         articles.append({
-                            'title': entry.get('title', ''),
-                            'description': entry.get('summary', ''),
+                            'title': clean_title,
+                            'description': description,
                             'url': entry.get('link', ''),
                             'publishedAt': entry.get('published', ''),
-                            'source': source
+                            'source': source.split('/')[-1].split('.')[0],  # Just get the source name
+                            'stocks': mentioned_stocks[:5]  # Limit to top 5 mentioned stocks
                         })
-                except Exception as e:
-                    logger.warning(f"Error fetching from {source}: {str(e)}")
-            
-            logger.info(f"Fetched {len(articles)} news articles")
-            return articles
-            
-        except Exception as e:
-            logger.error(f"Error fetching news: {str(e)}")
-            return []
+                        
+                        # Break if we have enough articles
+                        if len(articles) >= 20:  # Limit to 20 articles max
+                            break
+                            
+                    except Exception as e:
+                        logger.debug(f"Skipping entry due to error: {str(e)}")
+                        continue
+                
+                if len(articles) >= 20:  # Stop if we have enough articles
+                    break
+                        
+            except Exception as e:
+                logger.warning(f"Error fetching from {source}: {str(e)}")
+                continue
+        
+        # Sort articles by published date (newest first)
+        articles.sort(key=lambda x: x.get('publishedAt', ''), reverse=True)
+        
+        # Update cache
+        self._recommendations_cache = articles
+        self._last_update_time = current_time
+        
+        logger.info(f"Fetched {len(articles)} relevant Indian market news articles")
+        return articles
     
     def fetch_all_news_articles(self) -> List[Dict]:
         """Fetch all news articles from RSS feeds."""

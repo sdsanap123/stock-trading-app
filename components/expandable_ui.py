@@ -5,42 +5,12 @@ Reusable UI components for displaying data in expandable rows with + icons.
 """
 
 import streamlit as st
-import pandas as pd
 import logging
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Any, Optional
 from datetime import datetime
-import json
-import os
-import time
-import uuid
+import pandas as pd
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Cache the stock data loading to avoid reading the file multiple times
-@st.cache_data(ttl=86400)  # Cache for 24 hours
-def load_stock_data():
-    """Load stock data from the EQUITY_L.csv file."""
-    try:
-        # Path to the CSV file
-        csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'EQUITY_L.csv')
-        
-        # Read the CSV file
-        df = pd.read_csv(csv_path, encoding='utf-8')
-        
-        # Create a dictionary with symbol as key and company name as value
-        stock_data = {}
-        for _, row in df.iterrows():
-            symbol = row['SYMBOL'].strip().upper()
-            company_name = row['NAME OF COMPANY'].strip()
-            stock_data[symbol] = company_name
-            
-        logger.info(f"Loaded stock data for {len(stock_data)} companies")
-        return stock_data
-    except Exception as e:
-        logger.error(f"Error loading stock data: {str(e)}")
-        return {}
 
 class ModalWindow:
     """Custom modal window component for Streamlit."""
@@ -135,8 +105,6 @@ class ModalWindow:
             border-radius: 5px;
             margin: 5px 0;
             border-left: 3px solid #4CAF50;
-            flex: 1;
-            min-width: 300px;
         }}
         </style>
         
@@ -203,7 +171,7 @@ class ModalWindow:
             }
             .popup-content {
                 background-color: #2a2a2a;
-                padding: 20px;
+                padding: 15px;
                 border-radius: 8px;
                 color: white;
             }
@@ -239,7 +207,7 @@ class ModalWindow:
         button_key = f"full_modal_btn_{modal_id}"
         
         # Use Streamlit button with session state
-        if st.button(f"🔍 {button_text}", key=button_key, help="Click to view details in a popup window"):
+        if st.button(f"🔍 {button_text}", key=button_key, help="Click to view details in full width"):
             # Store the modal data in session state
             st.session_state[f"show_full_modal_{modal_id}"] = True
             st.session_state[f"full_modal_title_{modal_id}"] = title
@@ -247,82 +215,74 @@ class ModalWindow:
         
         # Show full-width modal if triggered
         if st.session_state.get(f"show_full_modal_{modal_id}", False):
-            # Create a simple popup using pure Streamlit components
+            # Create a full-width popup-like container
             st.markdown("---")
             
-            # Add CSS for horizontal layout styling
+            # Add custom CSS for full-width popup styling
             st.markdown("""
             <style>
-            .popup-container {
+            .full-popup-container {
                 background-color: #1e1e1e;
                 border: 3px solid #4CAF50;
                 border-radius: 15px;
-                padding: 20px;
-                margin: 20px 0;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+                padding: 25px;
+                margin: 15px 0;
+                box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+                width: 100%;
             }
-            .popup-header {
+            .full-popup-header {
                 background-color: #2d2d2d;
-                padding: 15px;
+                padding: 20px;
                 border-radius: 10px;
                 margin-bottom: 20px;
-                border-left: 4px solid #4CAF50;
+                border-left: 6px solid #4CAF50;
+                text-align: center;
             }
-            .popup-content-wrapper {
-                display: flex;
-                flex-direction: row;
-                flex-wrap: wrap;
-                gap: 20px;
-                justify-content: space-between;
-            }
-            .popup-metric {
-                background-color: #2d2d2d;
+            .full-popup-content {
+                background-color: #2a2a2a;
                 padding: 20px;
                 border-radius: 10px;
-                margin: 10px 0;
-                border-left: 4px solid #4CAF50;
-                flex: 1;
-                min-width: 300px;
-                max-width: 48%;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            }
-            .popup-metric h3 {
-                color: #4CAF50;
-                margin-top: 0;
-                margin-bottom: 15px;
-                font-size: 1.2rem;
-            }
-            .popup-metric p {
-                margin: 8px 0;
-                font-size: 15px;
                 color: white;
+                font-size: 16px;
+                line-height: 1.6;
+            }
+            .close-button {
+                background-color: #dc3545;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 16px;
+                margin: 10px;
+            }
+            .close-button:hover {
+                background-color: #c82333;
             }
             </style>
             """, unsafe_allow_html=True)
             
-            # Create the popup container using Streamlit
+            # Create the full-width popup container
             with st.container():
                 st.markdown(f"""
-                <div class="popup-container">
-                    <div class="popup-header">
-                        <h1 style="color: #4CAF50; margin: 0; text-align: center;">{title}</h1>
+                <div class="full-popup-container">
+                    <div class="full-popup-header">
+                        <h1 style="color: #4CAF50; margin: 0; font-size: 2rem;">{title}</h1>
                     </div>
-                    <div class="popup-content-wrapper">
+                    <div class="full-popup-content">
                         {content}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 # Close button
-                st.markdown("---")
                 col1, col2, col3 = st.columns([1, 2, 1])
                 with col2:
-                    if st.button("❌ Close Popup", key=f"close_popup_{modal_id}", help="Close the popup window", type="primary"):
+                    if st.button("❌ Close Full Details", key=f"close_full_{modal_id}", help="Close this full-width popup", type="primary"):
                         st.session_state[f"show_full_modal_{modal_id}"] = False
                         st.rerun()
-                
-                st.markdown("---")
-    
+            
+            st.markdown("---")
     
     @staticmethod
     def show_popup_window(button_text: str, modal_id: str, title: str, content: str):
@@ -460,7 +420,7 @@ class ExpandableUI:
                 formatted_date = published[:10] if published else 'N/A'
             
             # Create main row
-            col1, col2, col3, col4 = st.columns([3, 1.5, 1, 1])
+            col1, col2, col3, col4, col5 = st.columns([3, 1.5, 1, 1, 0.8])
             
             with col1:
                 st.write(f"**{display_title}**")
@@ -480,6 +440,19 @@ class ExpandableUI:
                 else:
                     st.write(f"{sentiment:.2f}")
             
+            with col5:
+                # Provide multiple viewing options
+                modal_id = f"news_modal_{index}"
+                modal_title = f"News Details - {article.get('title', 'Unknown')[:50]}..."
+                modal_content = ExpandableUI._get_news_details_html(article)
+                
+                # Show both full-width modal and popup window options
+                col5a, col5b = st.columns(2)
+                with col5a:
+                    ModalWindow.show_full_width_modal("📱 Wide View", modal_id, modal_title, modal_content)
+                with col5b:
+                    ModalWindow.show_popup_window("🪟 New Window", modal_id, modal_title, modal_content)
+            
             return False
             
         except Exception as e:
@@ -487,21 +460,63 @@ class ExpandableUI:
             return False
     
     @staticmethod
-    def _display_news_details(article: Dict) -> None:
+    def _get_news_details_html(article: Dict) -> str:
+        """Get HTML content for news details modal."""
+        try:
+            title = article.get('title', 'N/A')
+            source = article.get('source', 'N/A')
+            published = article.get('publishedAt', 'N/A')
+            url = article.get('url', 'N/A')
+            description = article.get('description', 'No description available')
+            sentiment = article.get('sentiment', 0)
+            
+            # Format sentiment
+            if sentiment > 0.1:
+                sentiment_html = f'<span style="color: #28a745;">Positive ({sentiment:.3f})</span>'
+            elif sentiment < -0.1:
+                sentiment_html = f'<span style="color: #dc3545;">Negative ({sentiment:.3f})</span>'
+            else:
+                sentiment_html = f'<span style="color: #ffc107;">Neutral ({sentiment:.3f})</span>'
+            
+            html_content = f"""
+            <div style="display: flex; gap: 20px;">
+                <div style="flex: 1;">
+                    <h3>📰 Article Details</h3>
+                    <div class="metric">
+                        <p><strong>Title:</strong> {title}</p>
+                        <p><strong>Source:</strong> {source}</p>
+                        <p><strong>Published:</strong> {published}</p>
+                        <p><strong>URL:</strong> <a href="{url}" target="_blank" style="color: #4CAF50;">{url}</a></p>
+                        <p><strong>Sentiment:</strong> {sentiment_html}</p>
+                    </div>
+                </div>
+                <div style="flex: 1;">
+                    <h3>📝 Content</h3>
+                    <div class="metric">
+                        <p>{description}</p>
+                    </div>
+                </div>
+            </div>
+            """
+            
+            if url and url != 'N/A':
+                html_content += f"""
+                <div style="margin-top: 20px;">
+                    <h3>🔗 Full Article</h3>
+                    <p><a href="{url}" target="_blank" style="color: #4CAF50; text-decoration: none; font-weight: bold;">Read Full Article →</a></p>
+                </div>
+                """
+            
+            return html_content
+            
+        except Exception as e:
+            logger.error(f"Error creating news details HTML: {str(e)}")
+            return "<p>Error loading details</p>"
+    
+    @staticmethod
+    def _display_news_details(article: Dict):
         """Display detailed news article information."""
         try:
-            # Get stock data for company name lookup
-            stock_data = load_stock_data()
-            
-            # Extract symbols from article content
-            mentioned_symbols = []
-            content = article.get('content', '') or article.get('description', '')
-            if content:
-                # Simple pattern to find potential stock symbols (1-5 uppercase letters)
-                import re
-                potential_symbols = re.findall(r'\b[A-Z]{1,5}\b', content)
-                mentioned_symbols = [s for s in potential_symbols if s in stock_data]
-            
             col1, col2 = st.columns(2)
             
             with col1:
@@ -510,12 +525,6 @@ class ExpandableUI:
                 st.write(f"• **Source:** {article.get('source', 'N/A')}")
                 st.write(f"• **Published:** {article.get('publishedAt', 'N/A')}")
                 st.write(f"• **URL:** {article.get('url', 'N/A')}")
-                
-                # Display mentioned companies if any
-                if mentioned_symbols:
-                    st.markdown("**📈 Mentioned Stocks**")
-                    for symbol in mentioned_symbols[:3]:  # Show max 3 to avoid clutter
-                        st.write(f"• **{symbol}** - {stock_data.get(symbol, 'N/A')}")
                 
                 # Sentiment analysis
                 sentiment = article.get('sentiment', 0)
@@ -546,17 +555,8 @@ class ExpandableUI:
     def display_recommendation_row(rec: Dict, index: int, show_actions: bool = True) -> bool:
         """Display a recommendation in an expandable row format."""
         try:
-            symbol = rec.get('symbol', 'UNKNOWN').strip().upper()
-            
-            # Try to get company name from the stock data
-            stock_data = load_stock_data()
+            symbol = rec.get('symbol', 'UNKNOWN')
             company_name = rec.get('company_name', '')
-            
-            # If company name is not in the recommendation, try to get it from the stock data
-            if not company_name and symbol in stock_data:
-                company_name = stock_data[symbol]
-                # Update the recommendation with the company name for future use
-                rec['company_name'] = company_name
             current_price = rec.get('current_price', 0)
             recommendation = rec.get('recommendation', '')
             confidence = rec.get('confidence', 0)
@@ -564,209 +564,81 @@ class ExpandableUI:
             stop_loss = rec.get('stop_loss', 0)
             created_at = rec.get('created_at', '')
             
-            # Format date
+            # Format entry date
             try:
                 if created_at:
                     date_obj = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                    formatted_date = date_obj.strftime('%Y-%m-%d %H:%M')
+                    formatted_date = date_obj.strftime('%d-%m-%Y')  # Format as DD-MM-YYYY
                 else:
                     formatted_date = 'N/A'
-            except:
-                formatted_date = created_at[:19] if created_at else 'N/A'
+            except Exception as e:
+                logger.warning(f"Error formatting date: {str(e)}")
+                formatted_date = 'N/A'
             
-            # Create main row with 7 columns (added details button)
-            col1, col2, col3, col4, col5, col6, col7 = st.columns([0.5, 1.5, 1, 1, 1, 0.8, 0.8])
+            # Create main row with 7 columns to match the header
+            col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 0.8, 0.8])
             
             with col1:
-                # Generate a unique ID for this recommendation using symbol, index, and a random component
-                unique_id = f"{symbol}_{index}_{uuid.uuid4().hex}"
-                
-                # Toggle button with unique key
-                toggle_key = f"toggle_{unique_id}"
-                if st.button("🔍", key=toggle_key, help="Toggle details"):
-                    st.session_state[f"show_details_{unique_id}"] = not st.session_state.get(f"show_details_{unique_id}", False)
+                st.write(f"**{symbol}**")
+                if company_name:
+                    st.caption(company_name)
             
             with col2:
-                if company_name:
-                    st.markdown(f"**{symbol}** - {company_name}")
-                else:
-                    st.markdown(f"**{symbol}**")
-                st.caption(f"Confidence: {confidence:.1f}%")
+                st.write(f"₹{current_price:.2f}")
             
             with col3:
-                # Recommendation with color
-                if recommendation == 'BUY':
-                    st.markdown('<span style="color: #28a745; font-weight: bold;">📈 BUY</span>', unsafe_allow_html=True)
-                elif recommendation == 'SELL':
-                    st.markdown('<span style="color: #dc3545; font-weight: bold;">📉 SELL</span>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<span style="color: #ffc107; font-weight: bold;">➡️ HOLD</span>', unsafe_allow_html=True)
+                st.write(f"{confidence:.1f}%")
             
             with col4:
                 st.write(f"₹{target_price:.2f}")
-                st.caption("Target")
             
             with col5:
                 st.write(f"₹{stop_loss:.2f}")
-                st.caption("Stop Loss")
             
+            # Details column with View Details button
             with col6:
-                # Details button
-                details_key = f"details_{unique_id}"
-                if st.button("📊", key=details_key, help="View analysis details"):
-                    st.session_state[f"show_analysis_{unique_id}"] = True
-            
-            with col7:
-                # Add to watchlist button
-                if show_actions:
-                    watchlist_key = f"add_watchlist_{unique_id}"
-                    if st.button("👀", key=watchlist_key, help="Add to watchlist"):
-                        st.session_state[f"add_to_watchlist_{unique_id}"] = True
-            
-            # Show analysis popup if details button was clicked
-            if st.session_state.get(f"show_analysis_{unique_id}", False):
-                # Add custom CSS for the popup
-                st.markdown("""
-                <style>
-                    .popup-overlay {
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        right: 0;
-                        bottom: 0;
-                        background-color: rgba(0, 0, 0, 0.7);
-                        z-index: 1000;
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                    }
-                    .popup-content {
-                        background: white;
-                        padding: 2rem;
-                        border-radius: 10px;
-                        max-width: 90%;
-                        max-height: 90vh;
-                        overflow-y: auto;
-                        position: relative;
-                    }
-                    .close-btn {
-                        position: absolute;
-                        top: 10px;
-                        right: 10px;
-                        font-size: 1.5rem;
-                        cursor: pointer;
-                        background: none;
-                        border: none;
-                        color: #666;
-                    }
-                </style>
-                """, unsafe_allow_html=True)
+                # Create a unique key for the expander
+                expander_key = f"expander_{index}"
                 
-                # Create the popup content
+                # Create a button to toggle the expander
+                if st.button("🔍 Details", key=f"btn_{expander_key}", 
+                           help="View detailed analysis"):
+                    # Toggle the expander state in session state
+                    if f"expanded_{expander_key}" in st.session_state:
+                        st.session_state[f"expanded_{expander_key}"] = not st.session_state[f"expanded_{expander_key}"]
+                    else:
+                        st.session_state[f"expanded_{expander_key}"] = True
+            
+            # Actions column with Watchlist button
+            with col7:
+                if show_actions and st.button("➕ Watchlist", key=f"watchlist_btn_{index}",
+                                           help="Add to watchlist"):
+                    # This will be handled by the parent component
+                    st.session_state[f"add_to_watchlist_{index}"] = True
+            
+            # Show the expander if it's toggled on
+            if st.session_state.get(f"expanded_{expander_key}", False):
+                # Use container to create a modal-like appearance
                 with st.container():
-                    # Close button - Using a callback to ensure proper state management
-                    def close_popup():
-                        st.session_state[f"show_analysis_{unique_id}"] = False
+                    # Create a header with a close button
+                    col1, col2 = st.columns([0.9, 0.1])
+                    with col1:
+                        st.markdown(f"### {symbol} - Detailed Analysis")
+                    with col2:
+                        if st.button("✕", key=f"close_{expander_key}"):
+                            st.session_state[f"expanded_{expander_key}"] = False
+                            st.rerun()
                     
-                    if st.button("✕", key=f"close_analysis_{index}", on_click=close_popup):
-                        # The callback will handle the state change
-                        st.rerun()
+                    # Add a divider
+                    st.markdown("---")
                     
-                    # Main content
-                    st.title(f"📊 Analysis Details - {symbol}")
+                    # Display the detailed content
+                    ExpandableUI._display_recommendation_details(rec)
                     
-                    # Analysis section
-                    with st.expander("📈 Technical Analysis", expanded=True):
-                        # Check groq_analysis first
-                        groq_analysis = rec.get('groq_analysis', {})
-                        if groq_analysis and (groq_analysis.get('status') == 'success' or 'analysis' in groq_analysis or 'technical_indicators' in groq_analysis):
-                            st.write("### Groq AI Analysis")
-                            
-                            # Show main analysis content if available
-                            if 'analysis' in groq_analysis and groq_analysis['analysis']:
-                                st.write(groq_analysis['analysis'])
-                            
-                            # Show key technical indicators if available
-                            if 'technical_indicators' in groq_analysis and groq_analysis['technical_indicators']:
-                                st.write("#### Technical Indicators")
-                                st.json(groq_analysis['technical_indicators'])
-                            
-                            # If we have analysis data but no content was shown, show the raw data
-                            if not any(['analysis' in groq_analysis, 'technical_indicators' in groq_analysis]):
-                                st.json({k: v for k, v in groq_analysis.items() if k != 'status'})
-                        
-                        # Check gemini_analysis
-                        gemini_analysis = rec.get('gemini_analysis', {})
-                        if gemini_analysis and isinstance(gemini_analysis, dict):
-                            st.write("### Gemini AI Analysis")
-                            if 'analysis' in gemini_analysis:
-                                st.write(gemini_analysis['analysis'])
-                            elif 'summary' in gemini_analysis:
-                                st.write(gemini_analysis['summary'])
-                        
-                        # Fallback to technical_data if available
-                        if not groq_analysis and not gemini_analysis and 'technical_data' in rec:
-                            st.json(rec['technical_data'])
-                        
-                        if not any([groq_analysis, gemini_analysis, 'technical_data' in rec]):
-                            st.info("No technical analysis available for this recommendation.")
-                    
-                    # Parameters used
-                    with st.expander("⚙️ Parameters & Indicators"):
-                        # Show technical parameters if available
-                        if 'technical_data' in rec and rec['technical_data']:
-                            st.write("#### Technical Parameters")
-                            tech_data = {k: v for k, v in rec['technical_data'].items() 
-                                      if not isinstance(v, (dict, list)) and not k.startswith('_')}
-                            if tech_data:
-                                st.json(tech_data)
-                        
-                        # Show swing plan parameters if available
-                        swing_plan = rec.get('swing_plan', {})
-                        if swing_plan:
-                            st.write("#### Swing Trading Plan")
-                            plan_data = {k: v for k, v in swing_plan.items() 
-                                       if not isinstance(v, (dict, list)) and not k.startswith('_')}
-                            if plan_data:
-                                st.json(plan_data)
-                        
-                        if not any(['technical_data' in rec, 'swing_plan' in rec]):
-                            st.info("No parameter details available.")
-                    
-                    # Additional notes and reasoning
-                    with st.expander("📝 Notes & Reasoning"):
-                        # Show reasoning if available
-                        if 'reasoning' in rec and rec['reasoning']:
-                            st.write("#### Recommendation Reasoning")
-                            st.write(rec['reasoning'])
-                        
-                        # Show groq_analysis notes if available
-                        groq_analysis = rec.get('groq_analysis', {})
-                        if groq_analysis and 'notes' in groq_analysis:
-                            st.write("#### Groq AI Notes")
-                            st.write(groq_analysis['notes'])
-                        
-                        # Show gemini_analysis notes if available
-                        gemini_analysis = rec.get('gemini_analysis', {})
-                        if gemini_analysis and 'notes' in gemini_analysis:
-                            st.write("#### Gemini AI Notes")
-                            st.write(gemini_analysis['notes'])
-                        
-                        # Show validation notes from swing plan if available
-                        swing_validation = rec.get('swing_validation', {})
-                        if swing_validation and 'notes' in swing_validation:
-                            st.write("#### Swing Validation Notes")
-                            st.write(swing_validation['notes'])
-                        
-                        if not any(['reasoning' in rec, 
-                                  groq_analysis and 'notes' in groq_analysis,
-                                  gemini_analysis and 'notes' in gemini_analysis,
-                                  swing_validation and 'notes' in swing_validation]):
-                            st.info("No additional notes available.")
-                    
-                    # Close button at bottom - Using the same callback for consistency
-                    if st.button("Close", key=f"bottom_close_{index}", on_click=close_popup):
-                        # The callback will handle the state change
+                    # Add some spacing and a close button at the bottom
+                    st.markdown("")
+                    if st.button("Close Details", key=f"close_btn_{expander_key}"):
+                        st.session_state[f"expanded_{expander_key}"] = False
                         st.rerun()
             
             return False
@@ -802,101 +674,101 @@ class ExpandableUI:
             # Recommendation color
             rec_color = "#28a745" if recommendation == "BUY" else "#dc3545" if recommendation == "SELL" else "#ffc107"
             
-            # Build HTML content step by step
-            html_content = ""
-            
-            # Trading Details
-            html_content += f"""
-            <div class="popup-metric">
-                <h3>📊 Trading Details</h3>
-                <p><strong>Symbol:</strong> {symbol}</p>
-                <p><strong>Current Price:</strong> ₹{current_price:.2f}</p>
-                <p><strong>Target Price:</strong> ₹{target_price:.2f}</p>
-                <p><strong>Stop Loss:</strong> ₹{stop_loss:.2f}</p>
-                <p><strong>Confidence:</strong> {confidence:.1f}%</p>
-                <p><strong>Recommendation:</strong> <span style="color: {rec_color}; font-weight: bold;">{recommendation}</span></p>
-                {risk_reward_html}
-            </div>
+            html_content = f"""
+            <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                <div style="flex: 1;">
+                    <h3>📊 Trading Details</h3>
+                    <div class="metric">
+                        <p><strong>Symbol:</strong> {symbol}</p>
+                        <p><strong>Current Price:</strong> ₹{current_price:.2f}</p>
+                        <p><strong>Target Price:</strong> ₹{target_price:.2f}</p>
+                        <p><strong>Stop Loss:</strong> ₹{stop_loss:.2f}</p>
+                        <p><strong>Confidence:</strong> {confidence:.1f}%</p>
+                        <p><strong>Recommendation:</strong> <span style="color: {rec_color}; font-weight: bold;">{recommendation}</span></p>
+                        {risk_reward_html}
+                    </div>
+                </div>
+                <div style="flex: 1;">
+                    <h3>📈 Swing Trading Plan</h3>
+                    <div class="metric">
             """
             
-            # Swing Trading Plan
-            html_content += f"""
-            <div class="popup-metric">
-                <h3>📈 Swing Trading Plan</h3>
-            """
             if swing_plan:
                 html_content += f"""
-                <p><strong>Position Size:</strong> {swing_plan.get('position_size', 0)} shares</p>
-                <p><strong>Investment:</strong> ₹{swing_plan.get('investment_amount', 0):,.0f}</p>
-                <p><strong>Risk Amount:</strong> ₹{swing_plan.get('risk_amount', 0):,.0f}</p>
-                <p><strong>Holding Period:</strong> {swing_plan.get('holding_period_days', 7)} days</p>
+                        <p><strong>Position Size:</strong> {swing_plan.get('position_size', 0)} shares</p>
+                        <p><strong>Investment:</strong> ₹{swing_plan.get('investment_amount', 0):,.0f}</p>
+                        <p><strong>Risk Amount:</strong> ₹{swing_plan.get('risk_amount', 0):,.0f}</p>
+                        <p><strong>Holding Period:</strong> {swing_plan.get('holding_period_days', 7)} days</p>
                 """
             else:
                 html_content += "<p>No swing plan available</p>"
-            html_content += "</div>"
             
-            # AI Reasoning
-            html_content += f"""
-            <div class="popup-metric">
-                <h3>💭 AI Reasoning</h3>
-                <p>{reasoning if reasoning else 'No reasoning provided'}</p>
-            </div>
-            """
-            
-            # Technical Analysis
-            html_content += f"""
-            <div class="popup-metric">
-                <h3>📊 Technical Indicators</h3>
-            """
-            if technical_data:
-                html_content += f"""
-                <p><strong>RSI:</strong> {technical_data.get('rsi', 0):.1f}</p>
-                <p><strong>MACD:</strong> {technical_data.get('macd', 0):.4f}</p>
-                <p><strong>SMA 20:</strong> ₹{technical_data.get('sma_20', 0):.2f}</p>
-                <p><strong>Volume Ratio:</strong> {technical_data.get('volume_ratio_20', 0):.2f}</p>
-                <p><strong>ATR:</strong> ₹{technical_data.get('atr', 0):.2f}</p>
-                <p><strong>Bollinger Position:</strong> {technical_data.get('bb_position', 0):.2f}</p>
-                """
-            else:
-                html_content += "<p>No technical data available</p>"
-            html_content += "</div>"
-            
-            # Groq Analysis
-            html_content += f"""
-            <div class="popup-metric">
-                <h3>🤖 Groq AI Analysis</h3>
-            """
-            if groq_analysis and groq_analysis.get('status') == 'success':
-                html_content += f"""
-                <p><strong>Sentiment:</strong> {groq_analysis.get('sentiment_label', 'N/A')}</p>
-                <p><strong>Impact Level:</strong> {groq_analysis.get('impact_level', 'N/A')}</p>
-                <p><strong>Price Impact:</strong> {groq_analysis.get('price_impact', 'N/A')}</p>
-                <p><strong>Swing Potential:</strong> {groq_analysis.get('swing_trading_potential', 'N/A')}</p>
-                """
-            else:
-                html_content += "<p>No Groq analysis available</p>"
-            html_content += "</div>"
-            
-            # Actions
             html_content += """
-            <div class="popup-metric">
-                <h3>⚡ Actions</h3>
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button onclick="alert('Add to Watchlist functionality will be implemented')" 
-                            style="background-color: #4CAF50; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
-                        👀 Add to Watchlist
-                    </button>
-                    <button onclick="alert('Share functionality will be implemented')" 
-                            style="background-color: #2196F3; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
-                        📤 Share
-                    </button>
-                    <button onclick="alert('Export functionality will be implemented')" 
-                            style="background-color: #ffc107; color: black; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
-                        📊 Export
-                    </button>
+                    </div>
                 </div>
             </div>
             """
+            
+            # AI Reasoning
+            if reasoning:
+                html_content += f"""
+                <div style="margin-bottom: 20px;">
+                    <h3>💭 AI Reasoning</h3>
+                    <div class="metric">
+                        <p>{reasoning}</p>
+                    </div>
+                </div>
+                """
+            
+            # Technical Analysis
+            if technical_data:
+                html_content += """
+                <div style="margin-bottom: 20px;">
+                    <h3>📊 Technical Indicators</h3>
+                    <div style="display: flex; gap: 20px;">
+                        <div style="flex: 1;">
+                            <div class="metric">
+                """
+                html_content += f"""
+                                <p><strong>RSI:</strong> {technical_data.get('rsi', 0):.1f}</p>
+                                <p><strong>MACD:</strong> {technical_data.get('macd', 0):.4f}</p>
+                                <p><strong>SMA 20:</strong> ₹{technical_data.get('sma_20', 0):.2f}</p>
+                """
+                html_content += """
+                            </div>
+                        </div>
+                        <div style="flex: 1;">
+                            <div class="metric">
+                """
+                html_content += f"""
+                                <p><strong>Volume Ratio:</strong> {technical_data.get('volume_ratio_20', 0):.2f}</p>
+                                <p><strong>ATR:</strong> ₹{technical_data.get('atr', 0):.2f}</p>
+                                <p><strong>Bollinger Position:</strong> {technical_data.get('bb_position', 0):.2f}</p>
+                """
+                html_content += """
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """
+            
+            # Groq Analysis
+            if groq_analysis and groq_analysis.get('status') == 'success':
+                html_content += """
+                <div style="margin-bottom: 20px;">
+                    <h3>🤖 Groq AI Analysis</h3>
+                    <div class="metric">
+                """
+                html_content += f"""
+                        <p><strong>Sentiment:</strong> {groq_analysis.get('sentiment_label', 'N/A')}</p>
+                        <p><strong>Impact Level:</strong> {groq_analysis.get('impact_level', 'N/A')}</p>
+                        <p><strong>Price Impact:</strong> {groq_analysis.get('price_impact', 'N/A')}</p>
+                        <p><strong>Swing Potential:</strong> {groq_analysis.get('swing_trading_potential', 'N/A')}</p>
+                """
+                html_content += """
+                    </div>
+                </div>
+                """
             
             return html_content
             
@@ -964,12 +836,71 @@ class ExpandableUI:
             
             # Groq Analysis
             groq_analysis = rec.get('groq_analysis', {})
-            if groq_analysis and groq_analysis.get('status') == 'success':
+            if groq_analysis:
                 st.markdown("**🤖 Groq AI Analysis**")
-                st.write(f"• **Sentiment:** {groq_analysis.get('sentiment_label', 'N/A')}")
-                st.write(f"• **Impact Level:** {groq_analysis.get('impact_level', 'N/A')}")
-                st.write(f"• **Price Impact:** {groq_analysis.get('price_impact', 'N/A')}")
-                st.write(f"• **Swing Potential:** {groq_analysis.get('swing_trading_potential', 'N/A')}")
+                
+                # Debug: Print the structure of groq_analysis
+                if 'status' in groq_analysis and groq_analysis['status'] == 'error':
+                    st.warning(f"Analysis error: {groq_analysis.get('message', 'Unknown error')}")
+                    return
+                
+                # Check if we have a direct analysis result
+                if 'recommendation' in groq_analysis:
+                    # This is a direct analysis result
+                    st.write(f"• **Recommendation:** {groq_analysis.get('recommendation', 'N/A')}")
+                    st.write(f"• **Confidence:** {float(groq_analysis.get('confidence', 0)) * 100:.1f}%")
+                    st.write(f"• **Price Target:** ₹{groq_analysis.get('price_target', 'N/A')}")
+                    st.write(f"• **Stop Loss:** ₹{groq_analysis.get('stop_loss', 'N/A')}")
+                    
+                    # Show sentiment if available
+                    if 'sentiment' in groq_analysis:
+                        st.write(f"• **Sentiment:** {groq_analysis.get('sentiment', 'N/A')}")
+                    
+                    # Show time horizon if available
+                    if 'time_horizon' in groq_analysis:
+                        st.write(f"• **Time Horizon:** {groq_analysis.get('time_horizon', 'N/A')}")
+                
+                # Check if we have stocks array format
+                elif 'stocks' in groq_analysis and isinstance(groq_analysis['stocks'], list) and groq_analysis['stocks']:
+                    # Use the first stock's analysis
+                    stock_analysis = groq_analysis['stocks'][0]
+                    st.write(f"• **Sentiment:** {stock_analysis.get('sentiment_label', stock_analysis.get('sentiment', 'N/A'))}")
+                    st.write(f"• **Impact Level:** {stock_analysis.get('impact_level', 'N/A')}")
+                    st.write(f"• **Price Impact:** {stock_analysis.get('price_impact', 'N/A')}")
+                    st.write(f"• **Swing Potential:** {stock_analysis.get('swing_trading_potential', stock_analysis.get('swing_potential', 'N/A'))}")
+                    if 'confidence' in stock_analysis:
+                        st.write(f"• **Confidence:** {float(stock_analysis.get('confidence', 0)) * 100:.1f}%")
+                
+                # Fallback to direct attributes if available
+                elif any(key in groq_analysis for key in ['sentiment', 'sentiment_label', 'impact_level', 'price_impact']):
+                    st.write(f"• **Sentiment:** {groq_analysis.get('sentiment_label', groq_analysis.get('sentiment', 'N/A'))}")
+                    st.write(f"• **Impact Level:** {groq_analysis.get('impact_level', 'N/A')}")
+                    st.write(f"• **Price Impact:** {groq_analysis.get('price_impact', 'N/A')}")
+                    st.write(f"• **Swing Potential:** {groq_analysis.get('swing_trading_potential', groq_analysis.get('swing_potential', 'N/A'))}")
+                    if 'confidence' in groq_analysis:
+                        st.write(f"• **Confidence:** {float(groq_analysis.get('confidence', 0)) * 100:.1f}%")
+                
+                # Display the unstructured AI analysis if available
+                if 'analysis' in groq_analysis and isinstance(groq_analysis['analysis'], str):
+                    st.markdown("---")
+                    st.markdown("#### 📝 Groq AI Analysis Summary")
+                    st.markdown(groq_analysis['analysis'])
+                # Handle case where analysis is in a different field or format
+                elif any(key in groq_analysis for key in ['summary', 'analysis_text', 'detailed_analysis']):
+                    analysis_text = next((groq_analysis[key] for key in ['summary', 'analysis_text', 'detailed_analysis'] 
+                                       if key in groq_analysis), None)
+                    if analysis_text and isinstance(analysis_text, str):
+                        st.markdown("---")
+                        st.markdown("#### 📝 Groq AI Analysis Summary")
+                        st.markdown(analysis_text)
+                
+                # If no structured data was found, show a warning
+                if not any(key in groq_analysis for key in ['recommendation', 'stocks', 'sentiment', 'analysis', 'summary', 'analysis_text', 'detailed_analysis']):
+                    st.warning("No detailed analysis data available. The Groq API might not be properly configured or returned an empty response.")
+                    
+                    # Debug: Show the actual structure of groq_analysis
+                    if st.checkbox("Show raw analysis data (for debugging)"):
+                        st.json(groq_analysis)
             
         except Exception as e:
             logger.error(f"Error displaying recommendation details: {str(e)}")
@@ -978,6 +909,40 @@ class ExpandableUI:
     def display_watchlist_row(item: Dict, index: int, show_actions: bool = True) -> bool:
         """Display a watchlist item in an expandable row format."""
         try:
+            # Add compact styling
+            st.markdown("""
+            <style>
+                .compact-row {
+                    line-height: 1 !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                }
+                .compact-row .stMarkdown {
+                    margin: 0 !important;
+                    padding: 0 !important;
+                }
+                .compact-row .stMarkdown p {
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    line-height: 1.1 !important;
+                }
+                .stButton>button {
+                    min-height: 1.5rem !important;
+                    height: 1.5rem !important;
+                    padding: 0 0.5rem !important;
+                    margin: 0 !important;
+                }
+                .stButton {
+                    line-height: 1 !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                }
+                [data-testid="stVerticalBlock"] {
+                    gap: 0 !important;
+                }
+            </style>
+            """, unsafe_allow_html=True)
+            
             symbol = item.get('symbol', 'UNKNOWN')
             company_name = item.get('company_name', '')
             current_price = item.get('current_price', 0)
@@ -998,219 +963,115 @@ class ExpandableUI:
             # Format date
             try:
                 if added_date:
-                    if 'T' in added_date:
-                        # Handle ISO format with time
-                        date_obj = datetime.fromisoformat(added_date.replace('Z', '+00:00'))
-                    else:
-                        # Handle date-only string
-                        date_obj = datetime.strptime(added_date, '%Y-%m-%d')
+                    date_obj = datetime.fromisoformat(added_date.replace('Z', '+00:00'))
                     formatted_date = date_obj.strftime('%Y-%m-%d')
                 else:
-                    formatted_date = datetime.now().strftime('%Y-%m-%d')  # Default to current date
-            except Exception as e:
-                logger.warning(f"Error parsing date {added_date}: {str(e)}")
-                formatted_date = datetime.now().strftime('%Y-%m-%d')  # Default to current date on error
+                    formatted_date = 'N/A'
+            except:
+                formatted_date = added_date[:10] if added_date else 'N/A'
             
-            # Create main row with 7 columns (added details button)
-            col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 1, 1, 1, 1, 1.5, 0.8])
+            # Create main row - more compact with headers
+            if index == 0:
+                # Add header row with adjusted column widths to match data rows
+                header_cols = st.columns([1.2, 0.8, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.6, 0.5])
+                with header_cols[0]: st.markdown("**Stock**")
+                with header_cols[1]: st.markdown("<div style='text-align: center;'>**Date**</div>", unsafe_allow_html=True)
+                with header_cols[2]: st.markdown("<div style='text-align: right;'>**Current**</div>", unsafe_allow_html=True)
+                with header_cols[3]: st.markdown("<div style='text-align: right;'>**Entry**</div>", unsafe_allow_html=True)
+                with header_cols[4]: st.markdown("<div style='text-align: right;'>**S/L**</div>", unsafe_allow_html=True)
+                with header_cols[5]: st.markdown("<div style='text-align: right;'>**P&L**</div>", unsafe_allow_html=True)
+                with header_cols[6]: st.markdown("<div style='text-align: right;'>**Target**</div>", unsafe_allow_html=True)
+                with header_cols[7]: st.markdown("<div style='text-align: center;'>**Status**</div>", unsafe_allow_html=True)
+                with header_cols[8]: st.markdown("**Actions**")
+                with header_cols[9]: st.markdown("**X**")
+                st.markdown("---")
+            
+            # Data row with consistent column widths
+            col1, col2, col3, col4, col5, col6, col7, col8, col9, col10 = st.columns([1.2, 0.8, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.6, 0.5])
             
             with col1:
-                st.markdown(f"**{symbol}**")
-                st.caption(f"Added: {formatted_date}")
-            
+                st.markdown(f'<div class="compact-row">', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-weight: bold;">{symbol}</div>', unsafe_allow_html=True)
+                if company_name:
+                    st.markdown(f'<div style="font-size: 0.8em; opacity: 0.8;">{company_name}</div>', unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+                
             with col2:
-                st.write(f"₹{current_price:.2f}")
-                st.caption("Current")
+                st.markdown(f'<div class="compact-row">{formatted_date}</div>', unsafe_allow_html=True)
             
             with col3:
-                st.write(f"₹{entry_price:.2f}")
-                st.caption("Entry")
+                st.markdown(f'<div style="text-align: right;">₹{current_price:,.2f}</div>', unsafe_allow_html=True)
             
             with col4:
-                # P&L with color
-                if pnl > 0:
-                    st.markdown(f'<span style="color: #28a745;">+{pnl:.1f}%</span>', unsafe_allow_html=True)
-                    st.caption(f"+₹{pnl_amount:.2f}")
-                elif pnl < 0:
-                    st.markdown(f'<span style="color: #dc3545;">{pnl:.1f}%</span>', unsafe_allow_html=True)
-                    st.caption(f"₹{pnl_amount:.2f}")
-                else:
-                    st.write("0.0%")
-                    st.caption("₹0.00")
+                st.markdown(f'<div style="text-align: right;">₹{entry_price:,.2f}</div>', unsafe_allow_html=True)
             
             with col5:
-                st.write(f"₹{target_price:.2f}")
-                st.caption("Target")
+                st.markdown(f'<div style="text-align: right;">₹{stop_loss:,.2f}</div>', unsafe_allow_html=True)
             
             with col6:
-                # Status with color
-                if status == 'ACTIVE':
-                    st.markdown('<span style="color: #28a745;">🟢 Active</span>', unsafe_allow_html=True)
-                elif status == 'TARGET_HIT':
-                    st.markdown('<span style="color: #ffc107;">🎯 Target Hit</span>', unsafe_allow_html=True)
-                elif status == 'STOP_LOSS_HIT':
-                    st.markdown('<span style="color: #dc3545;">🛑 Stop Loss</span>', unsafe_allow_html=True)
+                # P&L with color and right alignment
+                if pnl > 0:
+                    st.markdown(f'<div style="text-align: right;"><span style="color: #28a745;">+{pnl:.1f}%<br>+₹{pnl_amount:,.2f}</span></div>', unsafe_allow_html=True)
+                elif pnl < 0:
+                    st.markdown(f'<div style="text-align: right;"><span style="color: #dc3545;">{pnl:.1f}%<br>₹{pnl_amount:,.2f}</span></div>', unsafe_allow_html=True)
                 else:
-                    st.write(f"📊 {status}")
-                    
-            with col7:
-                # Details button
-                details_key = f"watchlist_details_{index}_{symbol}"
-                if st.button("📊", key=details_key, help="View analysis details"):
-                    st.session_state[f"show_watchlist_analysis_{index}"] = True
+                    st.markdown('<div style="text-align: right;">0.0%<br>₹0.00</div>', unsafe_allow_html=True)
             
-            # Show analysis popup if details button was clicked
-            if st.session_state.get(f"show_watchlist_analysis_{index}", False):
-                # Add custom CSS for the popup
-                st.markdown("""
-                <style>
-                    .popup-overlay {
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        right: 0;
-                        bottom: 0;
-                        background-color: rgba(0, 0, 0, 0.7);
-                        z-index: 1000;
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                    }
-                    .popup-content {
-                        background: white;
-                        padding: 2rem;
-                        border-radius: 10px;
-                        max-width: 90%;
-                        max-height: 90vh;
-                        overflow-y: auto;
-                        position: relative;
-                    }
-                    .close-btn {
-                        position: absolute;
-                        top: 10px;
-                        right: 10px;
-                        font-size: 1.5rem;
-                        cursor: pointer;
-                        background: none;
-                        border: none;
-                        color: #666;
-                    }
-                </style>
-                """, unsafe_allow_html=True)
+            with col7:
+                st.markdown(f'<div style="text-align: right;">₹{target_price:,.2f}</div>', unsafe_allow_html=True)
+            
+            with col8:
+                # Status with color and centered
+                if status == 'ACTIVE':
+                    st.markdown('<div style="text-align: center; color: #28a745;">🟢</div>', unsafe_allow_html=True)
+                elif status == 'TARGET_HIT':
+                    st.markdown('<div style="text-align: center; color: #ffc107;">🎯</div>', unsafe_allow_html=True)
+                elif status == 'STOP_LOSS_HIT':
+                    st.markdown('<div style="text-align: center; color: #dc3545;">🛑</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div style="text-align: center;">📊</div>', unsafe_allow_html=True)
+            
+            with col9:
+                # Create a unique key for the expander
+                expander_key = f"watchlist_expander_{index}"
                 
-                # Create the popup content
+                # Create a button to toggle the expander
+                if st.button("🔍", key=f"btn_{expander_key}", 
+                           help="View details"):
+                    # Toggle the expander state in session state
+                    if f"expanded_{expander_key}" in st.session_state:
+                        st.session_state[f"expanded_{expander_key}"] = not st.session_state[f"expanded_{expander_key}"]
+                    else:
+                        st.session_state[f"expanded_{expander_key}"] = True
+            
+            with col10:
+                if st.button("X", key=f"delete_{index}", help="Remove from watchlist"):
+                    st.session_state[f"delete_from_watchlist_{symbol}"] = True
+                    st.rerun()
+            
+            # Show the expander if it's toggled on
+            if st.session_state.get(f"expanded_{expander_key}", False):
+                # Use container to create a modal-like appearance
                 with st.container():
-                    # Close button - Using a callback to ensure proper state management
-                    def close_watchlist_popup():
-                        st.session_state[f"show_watchlist_analysis_{index}"] = False
+                    # Create a header with a close button
+                    col1, col2 = st.columns([0.9, 0.1])
+                    with col1:
+                        st.markdown(f"### {symbol} - Watchlist Details")
+                    with col2:
+                        if st.button("✕", key=f"close_{expander_key}"):
+                            st.session_state[f"expanded_{expander_key}"] = False
+                            st.rerun()
                     
-                    if st.button("✕", key=f"close_watchlist_analysis_{index}", on_click=close_watchlist_popup):
-                        # The callback will handle the state change
-                        st.rerun()
+                    # Add a divider
+                    st.markdown("---")
                     
-                    # Main content - Match the recommendations tab style
-                    st.title(f"📊 Analysis Details - {symbol}")
+                    # Display the detailed content
+                    ExpandableUI._display_watchlist_details(item)
                     
-                    # Analysis section - Match recommendations tab
-                    with st.expander("📈 Technical Analysis", expanded=True):
-                        # Check groq_analysis first
-                        groq_analysis = item.get('groq_analysis', {})
-                        if groq_analysis and groq_analysis.get('status') == 'success':
-                            st.write("### Groq AI Analysis")
-                            st.write(groq_analysis.get('analysis', 'No analysis available'))
-                            
-                            # Show key technical indicators if available
-                            if 'technical_indicators' in groq_analysis:
-                                st.write("#### Technical Indicators")
-                                st.json(groq_analysis['technical_indicators'])
-                        
-                        # Check gemini_analysis
-                        gemini_analysis = item.get('gemini_analysis', {})
-                        if gemini_analysis and isinstance(gemini_analysis, dict):
-                            st.write("### Gemini AI Analysis")
-                            if 'analysis' in gemini_analysis:
-                                st.write(gemini_analysis['analysis'])
-                            else:
-                                st.json(gemini_analysis)
-                        
-                        # Fallback to technical_data if no AI analysis
-                        technical_data = item.get('technical_data', {})
-                        if technical_data and not (groq_analysis or gemini_analysis):
-                            st.write("### Technical Analysis")
-                            st.json(technical_data)
-                        
-                        if not any([groq_analysis, gemini_analysis, technical_data]):
-                            st.info("No technical analysis available for this watchlist item.")
-                    
-                    # Parameters section
-                    with st.expander("⚙️ Parameters"):
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Current Price", f"₹{current_price:.2f}")
-                            st.metric("Entry Price", f"₹{entry_price:.2f}")
-                        with col2:
-                            st.metric("Target Price", f"₹{item.get('target_price', 0):.2f}")
-                            st.metric("Stop Loss", f"₹{item.get('stop_loss', 0):.2f}")
-                        with col3:
-                            st.metric("P&L", f"{pnl:+.2f}%", delta=f"₹{pnl_amount:+.2f}")
-                            st.metric("Confidence", f"{item.get('confidence', 0)}%")
-                        
-                        # Show technical parameters if available
-                        if technical_data:
-                            st.subheader("Technical Parameters")
-                            st.json(technical_data)
-                        elif 'technical_indicators' in groq_analysis:
-                            st.subheader("Technical Parameters")
-                            st.json(groq_analysis['technical_indicators'])
-                        else:
-                            st.info("No parameter details available.")
-                    
-                    # Swing Plan section if available
-                    swing_plan = item.get('swing_plan', {})
-                    if swing_plan:
-                        with st.expander("📋 Swing Trading Plan"):
-                            st.write(swing_plan.get('strategy_details', swing_plan.get('strategy', 'No swing trading plan available.')))
-                            
-                            st.subheader("Trade Parameters")
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.metric("Position Size", swing_plan.get('position_size', 'N/A'))
-                                st.metric("Risk Amount", f"₹{swing_plan.get('risk_amount', 0):.2f}")
-                            with col2:
-                                st.metric("Timeframe", swing_plan.get('timeframe', 'N/A'))
-                                st.metric("Risk-Reward", swing_plan.get('risk_reward_ratio', 'N/A'))
-                    
-                    # Notes section - Combine all available notes
-                    with st.expander("📝 Notes"):
-                        notes = []
-                        
-                        # Add reasoning if available
-                        reasoning = item.get('reasoning')
-                        if reasoning:
-                            notes.append(f"**Reasoning:** {reasoning}")
-                        
-                        # Add Groq notes if available
-                        if groq_analysis and 'notes' in groq_analysis:
-                            notes.append(f"**Groq Analysis Notes:** {groq_analysis['notes']}")
-                        
-                        # Add Gemini notes if available
-                        if gemini_analysis and 'notes' in gemini_analysis:
-                            notes.append(f"**Gemini Analysis Notes:** {gemini_analysis['notes']}")
-                        
-                        # Add any additional notes
-                        if item.get('notes'):
-                            notes.append(f"**Additional Notes:** {item['notes']}")
-                        elif item.get('additional_notes'):
-                            notes.append(f"**Additional Notes:** {item['additional_notes']}")
-                        
-                        if notes:
-                            st.markdown("\n\n".join(notes))
-                        else:
-                            st.info("No additional notes available.")
-                    
-                    # Close button at bottom - Using the same callback for consistency
-                    if st.button("Close", key=f"bottom_close_watchlist_{index}", on_click=close_watchlist_popup):
-                        # The callback will handle the state change
+                    # Add some spacing and a close button at the bottom
+                    st.markdown("")
+                    if st.button("Close Details", key=f"close_btn_{expander_key}"):
+                        st.session_state[f"expanded_{expander_key}"] = False
                         st.rerun()
             
             return False
@@ -1264,37 +1125,46 @@ class ExpandableUI:
             pnl_color = "#28a745" if pnl_percent > 0 else "#dc3545" if pnl_percent < 0 else "#ffc107"
             
             html_content = f"""
-            <div class="popup-metric">
-                <h3>📊 Position Details</h3>
-                <p><strong>Symbol:</strong> {symbol}</p>
-                <p><strong>Entry Price:</strong> ₹{entry_price:.2f}</p>
-                <p><strong>Current Price:</strong> ₹{current_price:.2f}</p>
-                <p><strong>Target Price:</strong> ₹{target_price:.2f}</p>
-                <p><strong>Stop Loss:</strong> ₹{stop_loss:.2f}</p>
-                {target_distance_html}
-                {stop_distance_html}
-            </div>
-            <div class="popup-metric">
-                <h3>📈 Performance Metrics</h3>
-                <p><strong>P&L Percentage:</strong> <span style="color: {pnl_color}; font-weight: bold;">{pnl_percent:.2f}%</span></p>
-                <p><strong>P&L Amount:</strong> <span style="color: {pnl_color}; font-weight: bold;">₹{pnl_amount:.2f}</span></p>
-                <p><strong>Status:</strong> {status}</p>
-                <p><strong>Confidence:</strong> {confidence:.1f}%</p>
-                {risk_reward_html}
-            </div>
-            """
-            
-            # Notes section - Always show this section
-            html_content += f"""
-            <div class="popup-metric">
-                <h3>📝 Notes</h3>
-                <p>{notes if notes else 'No notes available'}</p>
+            <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                <div style="flex: 1;">
+                    <h3>📊 Position Details</h3>
+                    <div class="metric">
+                        <p><strong>Symbol:</strong> {symbol}</p>
+                        <p><strong>Entry Price:</strong> ₹{entry_price:.2f}</p>
+                        <p><strong>Current Price:</strong> ₹{current_price:.2f}</p>
+                        <p><strong>Target Price:</strong> ₹{target_price:.2f}</p>
+                        <p><strong>Stop Loss:</strong> ₹{stop_loss:.2f}</p>
+                        {target_distance_html}
+                        {stop_distance_html}
+                    </div>
+                </div>
+                <div style="flex: 1;">
+                    <h3>📈 Performance Metrics</h3>
+                    <div class="metric">
+                        <p><strong>P&L Percentage:</strong> <span style="color: {pnl_color}; font-weight: bold;">{pnl_percent:.2f}%</span></p>
+                        <p><strong>P&L Amount:</strong> <span style="color: {pnl_color}; font-weight: bold;">₹{pnl_amount:.2f}</span></p>
+                        <p><strong>Status:</strong> {status}</p>
+                        <p><strong>Confidence:</strong> {confidence:.1f}%</p>
+                        {risk_reward_html}
+                    </div>
+                </div>
             </div>
             """
             
-            # Action buttons - Always show this section
+            # Notes section
+            if notes:
+                html_content += f"""
+                <div style="margin-bottom: 20px;">
+                    <h3>📝 Notes</h3>
+                    <div class="metric">
+                        <p>{notes}</p>
+                    </div>
+                </div>
+                """
+            
+            # Action buttons
             html_content += """
-            <div class="popup-metric">
+            <div style="margin-bottom: 20px;">
                 <h3>⚡ Actions</h3>
                 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button onclick="alert('Update Price functionality will be implemented')" 
@@ -1405,229 +1275,118 @@ class ExpandableUI:
     def display_swing_strategy_row(strategy: Dict, index: int, show_actions: bool = True) -> bool:
         """Display a swing strategy in an expandable row format."""
         try:
-            symbol = strategy.get('symbol', 'UNKNOWN').strip().upper()
+            symbol = strategy.get('symbol', 'UNKNOWN')
             company_name = strategy.get('company_name', '')
-            entry_price = float(strategy.get('entry_price', 0))
-            current_price = float(strategy.get('current_price', entry_price))  # Fallback to entry_price if not available
-            take_profit = float(strategy.get('take_profit', 0))
-            stop_loss = float(strategy.get('stop_loss', 0))
-            position_size = int(strategy.get('position_size', 0))
-            investment_amount = float(strategy.get('investment_amount', 0))
-            risk_reward_ratio = float(strategy.get('risk_reward_ratio', 0))
+            
+            # Get entry price, target, and stop loss from the strategy
+            # First try to get from the top level, then from the 'levels' dictionary if it exists
+            entry_price = strategy.get('entry_price', strategy.get('current_price', 0))
+            take_profit = strategy.get('take_profit', 0)
+            stop_loss = strategy.get('stop_loss', 0)
+            
+            # If we have a 'levels' dictionary, use those values
+            if 'levels' in strategy and isinstance(strategy['levels'], dict):
+                entry_price = strategy['levels'].get('entry_price', entry_price)
+                take_profit = strategy['levels'].get('take_profit', take_profit)
+                stop_loss = strategy['levels'].get('stop_loss', stop_loss)
+            
+            # Ensure we have valid values
+            current_price = strategy.get('current_price', entry_price)
+            entry_price = entry_price or current_price
+            take_profit = take_profit or (entry_price * 1.02)  # Default 2% take profit if not set
+            stop_loss = stop_loss or (entry_price * 0.98)  # Default 2% stop loss if not set
+            
+            position_size = strategy.get('position_size', 0)
+            investment_amount = strategy.get('investment_amount', 0)
+            risk_reward_ratio = strategy.get('risk_reward_ratio', 0)
             status = strategy.get('status', 'ACTIVE')
             created_at = strategy.get('created_at', '')
             
-            # Calculate days left
-            days_left = 0
-            try:
-                exit_date_str = strategy.get('expected_exit_date', '')
-                if exit_date_str:
-                    if 'T' in exit_date_str:
-                        exit_date = datetime.fromisoformat(exit_date_str.replace('Z', '+00:00'))
-                    else:
-                        exit_date = datetime.strptime(exit_date_str, "%Y-%m-%d")
-                    days_left = max(0, (exit_date - datetime.now()).days)
-            except Exception as e:
-                logger.warning(f"Error calculating days left: {str(e)}")
-                days_left = int(strategy.get('holding_period_days', 5))
-            
-            # Format date
+            # Calculate days remaining (7 days from creation)
+            days_remaining = 7  # Default value
             try:
                 if created_at:
-                    date_obj = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                    formatted_date = date_obj.strftime('%Y-%m-%d %H:%M')
-                else:
-                    formatted_date = 'N/A'
-            except:
-                formatted_date = created_at[:19] if created_at else 'N/A'
+                    created_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    days_passed = (datetime.now(created_date.tzinfo) - created_date).days
+                    days_remaining = max(0, 7 - days_passed)  # Clamp between 0 and 7
+            except Exception as e:
+                logger.warning(f"Error calculating days remaining: {str(e)}")
+                days_remaining = 7
             
-            # Create main row with 8 columns (added details button)
+            # Create main row - more compact
             col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8, 0.8])
             
             with col1:
+                st.write(f"**{symbol}**")
                 if company_name:
-                    st.markdown(f"**{symbol}** - {company_name}")
-                else:
-                    st.markdown(f"**{symbol}**")
+                    st.caption(company_name)
             
             with col2:
-                st.markdown(f"₹{current_price:.2f}")
-                st.caption("CMP")
+                st.write(f"₹{entry_price:.2f}")
             
             with col3:
-                st.markdown(f"₹{take_profit:.2f}" if take_profit > 0 else "N/A")
-                st.caption("Target")
+                st.write(f"₹{take_profit:.2f}")
             
             with col4:
-                st.markdown(f"₹{stop_loss:.2f}" if stop_loss > 0 else "N/A")
-                st.caption("Stop Loss")
+                st.write(f"₹{stop_loss:.2f}")
             
             with col5:
-                st.markdown(f"{days_left}d" if days_left >= 0 else "Expired")
-                st.caption("Days Left")
+                st.write(f"{days_remaining}d")
             
-            # Risk-Reward with color
             with col6:
-                if risk_reward_ratio > 0:
-                    if risk_reward_ratio >= 2.0:
-                        st.markdown(f'<span style="color: #28a745;">{risk_reward_ratio:.2f}:1</span>', unsafe_allow_html=True)
-                    elif risk_reward_ratio >= 1.5:
-                        st.markdown(f'<span style="color: #ffc107;">{risk_reward_ratio:.2f}:1</span>', unsafe_allow_html=True)
-                    else:
-                        st.markdown(f'<span style="color: #dc3545;">{risk_reward_ratio:.2f}:1</span>', unsafe_allow_html=True)
+                # Risk-Reward with color
+                if risk_reward_ratio >= 2.0:
+                    st.markdown(f'<span style="color: #28a745;">{risk_reward_ratio:.2f}:1</span>', unsafe_allow_html=True)
+                elif risk_reward_ratio >= 1.5:
+                    st.markdown(f'<span style="color: #ffc107;">{risk_reward_ratio:.2f}:1</span>', unsafe_allow_html=True)
                 else:
-                    st.markdown("N/A")
-                st.caption("Risk-Reward")
+                    st.markdown(f'<span style="color: #dc3545;">{risk_reward_ratio:.2f}:1</span>', unsafe_allow_html=True)
             
             with col7:
-                # Details button - Include timestamp in key to ensure uniqueness
-                timestamp = int(time.time() * 1000)  # Current time in milliseconds
-                details_key = f"swing_details_{index}_{symbol}_{timestamp}"
-                if st.button("📊", key=details_key, help="View strategy details"):
-                    st.session_state[f"show_swing_analysis_{index}_{timestamp}"] = True
+                # Create a unique key for the expander
+                expander_key = f"swing_expander_{index}"
+                
+                # Create a button to toggle the expander
+                if st.button("🔍 Details", key=f"btn_{expander_key}", 
+                           help="Click to view detailed analysis"):
+                    # Toggle the expander state in session state
+                    if f"expanded_{expander_key}" in st.session_state:
+                        st.session_state[f"expanded_{expander_key}"] = not st.session_state[f"expanded_{expander_key}"]
+                    else:
+                        st.session_state[f"expanded_{expander_key}"] = True
+            
+            # Show the expander if it's toggled on
+            if st.session_state.get(f"expanded_{expander_key}", False):
+                # Use container to create a modal-like appearance
+                with st.container():
+                    # Create a header with a close button
+                    col1, col2 = st.columns([0.9, 0.1])
+                    with col1:
+                        st.markdown(f"### {symbol} - Swing Strategy Details")
+                    with col2:
+                        if st.button("✕", key=f"close_{expander_key}"):
+                            st.session_state[f"expanded_{expander_key}"] = False
+                            st.rerun()
+                    
+                    # Add a divider
+                    st.markdown("---")
+                    
+                    # Display the detailed content
+                    ExpandableUI._display_swing_strategy_details(strategy)
+                    
+                    # Add some spacing and a close button at the bottom
+                    st.markdown("")
+                    if st.button("Close Details", key=f"close_btn_{expander_key}"):
+                        st.session_state[f"expanded_{expander_key}"] = False
+                        st.rerun()
             
             with col8:
-                # Add to watchlist button - Include timestamp in key to ensure uniqueness
+                # Add to watchlist button
                 if show_actions:
-                    watchlist_key = f"add_swing_watchlist_{index}_{symbol}_{timestamp}"
+                    watchlist_key = f"add_swing_watchlist_{index}_{symbol}"
                     if st.button("👀", key=watchlist_key, help="Add to watchlist"):
-                        st.session_state[f"add_swing_to_watchlist_{index}_{timestamp}"] = True
-            
-            # Show analysis popup if details button was clicked
-            if st.session_state.get(f"show_swing_analysis_{index}_{timestamp}", False):
-                # Add custom CSS for the popup
-                st.markdown("""
-                <style>
-                    .popup-overlay {
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        right: 0;
-                        bottom: 0;
-                        background-color: rgba(0, 0, 0, 0.7);
-                        z-index: 1000;
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                    }
-                    .popup-content {
-                        background: white;
-                        padding: 2rem;
-                        border-radius: 10px;
-                        max-width: 90%;
-                        max-height: 90vh;
-                        overflow-y: auto;
-                        position: relative;
-                    }
-                    .close-btn {
-                        position: absolute;
-                        top: 10px;
-                        right: 10px;
-                        font-size: 1.5rem;
-                        cursor: pointer;
-                        background: none;
-                        border: none;
-                        color: #666;
-                    }
-                </style>
-                """, unsafe_allow_html=True)
-                
-                # Create the popup content
-                with st.container():
-                    # Close button - Using a callback to ensure proper state management
-                    def close_swing_popup():
-                        st.session_state[f"show_swing_analysis_{index}_{timestamp}"] = False
-                    
-                    if st.button("✕", key=f"close_swing_analysis_{index}_{timestamp}", on_click=close_swing_popup):
-                        # The callback will handle the state change
-                        st.rerun()
-                    
-                    # Main content - Match the recommendations tab style
-                    st.title(f"📊 Analysis Details - {symbol}")
-                    
-                    # Analysis section - Match recommendations tab
-                    with st.expander("📈 Technical Analysis", expanded=True):
-                        # Check groq_analysis first
-                        groq_analysis = strategy.get('groq_analysis', {})
-                        if groq_analysis and groq_analysis.get('status') == 'success':
-                            st.write("### Groq AI Analysis")
-                            st.write(groq_analysis.get('analysis', 'No analysis available'))
-                            
-                            # Show key technical indicators if available
-                            if 'technical_indicators' in groq_analysis:
-                                st.write("#### Technical Indicators")
-                                st.json(groq_analysis['technical_indicators'])
-                        
-                        # Check gemini_analysis
-                        gemini_analysis = strategy.get('gemini_analysis', {})
-                        if gemini_analysis and isinstance(gemini_analysis, dict):
-                            st.write("### Gemini AI Analysis")
-                            if 'analysis' in gemini_analysis:
-                                st.write(gemini_analysis['analysis'])
-                            else:
-                                st.json(gemini_analysis)
-                        
-                        # Show technical parameters if available
-                        technical_data = strategy.get('technical_data', {})
-                        if technical_data:
-                            st.subheader("Technical Parameters")
-                            st.json({k: v for k, v in technical_data.items() 
-                                  if not isinstance(v, (dict, list)) and not k.startswith('_')})
-                        else:
-                            st.info("No parameter details available.")
-                    
-                    # Swing Plan section
-                    swing_plan = strategy.get('swing_plan', {})
-                    if swing_plan:
-                        with st.expander("📋 Swing Trading Plan"):
-                            st.write(swing_plan.get('strategy_details', swing_plan.get('strategy', 'No swing trading plan available.')))
-                            
-                            st.subheader("Trade Parameters")
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.metric("Position Size", position_size)
-                                st.metric("Risk Amount", f"₹{risk_amount:.2f}")
-                            with col2:
-                                st.metric("Timeframe", swing_plan.get('timeframe', 'N/A'))
-                                st.metric("Confidence", f"{swing_plan.get('confidence', 0)}%")
-                    
-                    # Notes section - Combine all available notes
-                    with st.expander("📝 Notes"):
-                        notes = []
-                        
-                        # Add reasoning if available
-                        reasoning = strategy.get('reasoning')
-                        if reasoning:
-                            notes.append(f"**Reasoning:** {reasoning}")
-                        
-                        # Add Groq notes if available
-                        if groq_analysis and 'notes' in groq_analysis:
-                            notes.append(f"**Groq Analysis Notes:** {groq_analysis['notes']}")
-                        
-                        # Add Gemini notes if available
-                        if gemini_analysis and 'notes' in gemini_analysis:
-                            notes.append(f"**Gemini Analysis Notes:** {gemini_analysis['notes']}")
-                        
-                        # Add swing validation notes if available
-                        swing_validation = strategy.get('swing_validation', {})
-                        if swing_validation and 'notes' in swing_validation:
-                            notes.append(f"**Swing Validation Notes:** {swing_validation['notes']}")
-                        
-                        # Add any additional notes
-                        if strategy.get('notes'):
-                            notes.append(f"**Additional Notes:** {strategy['notes']}")
-                        elif strategy.get('additional_notes'):
-                            notes.append(f"**Additional Notes:** {strategy['additional_notes']}")
-                        
-                        if notes:
-                            st.markdown("\n\n".join(notes))
-                        else:
-                            st.info("No additional notes available.")
-                    
-                    # Close button at bottom - Using the same callback for consistency
-                    if st.button("Close", key=f"bottom_close_swing_{index}", on_click=close_swing_popup):
-                        # The callback will handle the state change
-                        st.rerun()
+                        # This will be handled by the calling function
+                        st.session_state[f"add_swing_to_watchlist_{index}"] = True
             
             return False
             
@@ -1669,40 +1428,61 @@ class ExpandableUI:
                 days_remaining_html = "<p><strong>Days Remaining:</strong> N/A</p>"
             
             html_content = f"""
-            <div class="popup-metric">
-                <h3>📊 Strategy Overview</h3>
-                <p><strong>Symbol:</strong> {symbol}</p>
-                <p><strong>Strategy Name:</strong> {strategy_name}</p>
-                <p><strong>Entry Price:</strong> ₹{entry_price:.2f}</p>
-                <p><strong>Take Profit:</strong> ₹{take_profit:.2f}</p>
-                <p><strong>Stop Loss:</strong> ₹{stop_loss:.2f}</p>
-                <p><strong>Holding Period:</strong> {holding_period} days</p>
+            <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                <div style="flex: 1;">
+                    <h3>📊 Strategy Overview</h3>
+                    <div class="metric">
+                        <p><strong>Symbol:</strong> {symbol}</p>
+                        <p><strong>Strategy Name:</strong> {strategy_name}</p>
+                        <p><strong>Entry Price:</strong> ₹{entry_price:.2f}</p>
+                        <p><strong>Take Profit:</strong> ₹{take_profit:.2f}</p>
+                        <p><strong>Stop Loss:</strong> ₹{stop_loss:.2f}</p>
+                        <p><strong>Holding Period:</strong> {holding_period} days</p>
+                    </div>
+                </div>
+                <div style="flex: 1;">
+                    <h3>💰 Position Details</h3>
+                    <div class="metric">
+                        <p><strong>Position Size:</strong> {position_size} shares</p>
+                        <p><strong>Investment Amount:</strong> ₹{investment_amount:,.0f}</p>
+                        <p><strong>Risk Amount:</strong> ₹{risk_amount:,.0f}</p>
+                        <p><strong>Risk-Reward Ratio:</strong> {risk_reward_ratio:.2f}:1</p>
+                        <p><strong>Confidence:</strong> {confidence:.1f}%</p>
+                        <p><strong>Status:</strong> {status}</p>
+                    </div>
+                </div>
             </div>
-            <div class="popup-metric">
-                <h3>💰 Position Details</h3>
-                <p><strong>Position Size:</strong> {position_size} shares</p>
-                <p><strong>Investment Amount:</strong> ₹{investment_amount:,.0f}</p>
-                <p><strong>Risk Amount:</strong> ₹{risk_amount:,.0f}</p>
-                <p><strong>Risk-Reward Ratio:</strong> {risk_reward_ratio:.2f}:1</p>
-                <p><strong>Confidence:</strong> {confidence:.1f}%</p>
-                <p><strong>Status:</strong> {status}</p>
-            </div>
-            <div class="popup-metric">
+            
+            <div style="margin-bottom: 20px;">
                 <h3>📅 Timeline</h3>
-                <p><strong>Entry Date:</strong> {entry_date[:10] if entry_date != 'N/A' else 'N/A'}</p>
-                <p><strong>Created:</strong> {created_at[:19] if created_at != 'N/A' else 'N/A'}</p>
-                <p><strong>Expected Exit:</strong> {expected_exit_date[:10] if expected_exit_date != 'N/A' else 'N/A'}</p>
-                {days_remaining_html}
+                <div style="display: flex; gap: 20px;">
+                    <div style="flex: 1;">
+                        <div class="metric">
+                            <p><strong>Entry Date:</strong> {entry_date[:10] if entry_date != 'N/A' else 'N/A'}</p>
+                            <p><strong>Created:</strong> {created_at[:19] if created_at != 'N/A' else 'N/A'}</p>
+                        </div>
+                    </div>
+                    <div style="flex: 1;">
+                        <div class="metric">
+                            <p><strong>Expected Exit:</strong> {expected_exit_date[:10] if expected_exit_date != 'N/A' else 'N/A'}</p>
+                            {days_remaining_html}
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="popup-metric">
+            
+            <div style="margin-bottom: 20px;">
                 <h3>📋 Strategy Rules</h3>
-                <p>• Hold for maximum 7 days</p>
-                <p>• Stop loss at 8% below entry</p>
-                <p>• Take profit at 15% above entry</p>
-                <p>• Monitor daily for exit signals</p>
-                <p>• Do not average down if trade goes against you</p>
+                <div class="metric">
+                    <p>• Hold for maximum 7 days</p>
+                    <p>• Stop loss at 8% below entry</p>
+                    <p>• Take profit at 15% above entry</p>
+                    <p>• Monitor daily for exit signals</p>
+                    <p>• Do not average down if trade goes against you</p>
+                </div>
             </div>
-            <div class="popup-metric">
+            
+            <div style="margin-bottom: 20px;">
                 <h3>⚡ Actions</h3>
                 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button onclick="alert('Update Status functionality will be implemented')" 
@@ -1731,24 +1511,11 @@ class ExpandableUI:
     def _display_swing_strategy_details(strategy: Dict):
         """Display detailed swing strategy information."""
         try:
-            # Get stock data for company name
-            stock_data = load_stock_data()
-            symbol = strategy.get('symbol', '').strip().upper()
-            company_name = strategy.get('company_name', '')
-            
-            # If company name is not in the strategy, try to get it from the stock data
-            if not company_name and symbol in stock_data:
-                company_name = stock_data[symbol]
-                # Update the strategy with the company name for future use
-                strategy['company_name'] = company_name
-            
             col1, col2 = st.columns(2)
             
             with col1:
                 st.markdown("**📊 Strategy Overview**")
-                if company_name:
-                    st.write(f"• **Company:** {company_name}")
-                st.write(f"• **Symbol:** {symbol if symbol else 'N/A'}")
+                st.write(f"• **Symbol:** {strategy.get('symbol', 'N/A')}")
                 st.write(f"• **Strategy Name:** {strategy.get('strategy_name', 'N/A')}")
                 st.write(f"• **Entry Price:** ₹{strategy.get('entry_price', 0):.2f}")
                 st.write(f"• **Take Profit:** ₹{strategy.get('take_profit', 0):.2f}")
