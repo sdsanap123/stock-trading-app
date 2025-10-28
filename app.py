@@ -5,50 +5,64 @@ A comprehensive stock analysis and trading application with AI-powered recommend
 """
 
 import os
+import re
+import json
+import time
+import base64
+import random
+import logging
+import pandas as pd
+import numpy as np
+import streamlit as st
+import yfinance as yf
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple, Any, Union
+from dataclasses import dataclass, asdict
+import requests
+import plotly.express as px
+from streamlit_extras.metric_cards import style_metric_cards
+import plotly.figure_factory as ff
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Configure logging
+log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# Configure console handler
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(log_formatter)
+
+# Configure file handler with UTF-8 encoding
+file_handler = logging.FileHandler('trading_app.log', encoding='utf-8')
+file_handler.setFormatter(log_formatter)
+
+# Configure root logger
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[console_handler, file_handler]
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 env_path = Path('.') / '.env'
 load_dotenv(dotenv_path=env_path)
 
-import streamlit as st
-import yfinance as yf
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import logging
-import json
-import pickle
-import time
-import requests
-from typing import Dict, List, Optional, Tuple
-import sys
-from dataclasses import dataclass
-from textblob import TextBlob
 import feedparser
 from collections import defaultdict
 import warnings
 warnings.filterwarnings('ignore')
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('enhanced_trading.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# Import all the analysis components from the original app
-from components.ai_engine import AIRecommendationEngine
+# Import custom components
+from components.data_persistence import DataPersistenceManager
 from components.technical_analyzer import TechnicalAnalyzer
 from components.fundamental_analyzer import FundamentalAnalyzer
 from components.news_analyzer import NewsAnalyzer
+from components.ai_engine import AIRecommendationEngine
 from components.groq_analyzer import GroqNewsAnalyzer
 from components.gemini_analyzer import GeminiAIAnalyzer
+from components.expandable_ui import ExpandableUI
+from utils.stock_utils import get_stock_data, find_stock_symbol
 from components.watchlist_manager import WatchlistManager
 from components.recommendation_learning import RecommendationTracker
 from components.firebase_integration import FirebaseSync
@@ -1291,127 +1305,139 @@ class StreamlitTradingApp:
         # Get today's date in YYYY-MM-DD format
         today = datetime.now().strftime("%Y-%m-%d")
         
-        # Get all strategies for today from data persistence
-        data_persistence = st.session_state.data_persistence
-        swing_strategies = data_persistence.get_swing_strategies_by_date(today)
+        # Get all swing strategies for today
+        swing_strategies = []
+        seen_symbols = set()
         
-        # Also include any newly generated strategies that haven't been saved yet
-        if st.session_state.recommendations:
+        # 1. Get strategies from current recommendations
+        if st.session_state.get('recommendations'):
             for rec in st.session_state.recommendations:
-                swing_plan = rec.get('swing_plan', {})
-                if swing_plan and swing_plan not in swing_strategies:
-                    swing_strategies.append(swing_plan)
+                if 'swing_plan' in rec:
+                    symbol = rec.get('symbol')
+                    if symbol and symbol not in seen_symbols:
+                        swing_plan = rec['swing_plan']
+                        # Add basic info if missing
+                        if 'symbol' not in swing_plan:
+                            swing_plan['symbol'] = symbol
+                        if 'company_name' not in swing_plan and 'company_name' in rec:
+                            swing_plan['company_name'] = rec['company_name']
+                        if 'current_price' not in swing_plan and 'current_price' in rec:
+                            swing_plan['current_price'] = rec['current_price']
+                        
+                        swing_strategies.append(swing_plan)
+                        seen_symbols.add(symbol)
+        
+        # 2. Get any additional saved strategies for today
+        saved_strategies = st.session_state.data_persistence.get_swing_strategies_by_date(today)
+        if saved_strategies:
+            for strategy in saved_strategies:
+                symbol = strategy.get('symbol')
+                if symbol and symbol not in seen_symbols:
+                    swing_strategies.append(strategy)
+                    seen_symbols.add(symbol)
+        
+        if swing_strategies:
+            # Display summary metrics
+            col1, col2, col3, col4 = st.columns(4)
             
-            if swing_strategies:
-                st.subheader(f"📈 Today's Swing Trading Plans ({len(swing_strategies)} strategies)")
+            with col1:
+                st.metric("Total Strategies", len(swing_strategies))
+            
+            with col2:
+                high_confidence = len([s for s in swing_strategies if s.get('confidence', 0) >= 80])
+                st.metric("High Confidence", high_confidence)
+            
+            with col3:
+                avg_risk_reward = sum(s.get('risk_reward_ratio', 0) for s in swing_strategies) / len(swing_strategies) if swing_strategies else 0
+                st.metric("Avg Risk-Reward", f"{avg_risk_reward:.2f}:1")
+            
+            with col4:
+                # Calculate days to expiry
+                current_date = datetime.now()
+                total_days = 0
+                for strategy in swing_strategies:
+                    try:
+                        exit_date = datetime.fromisoformat(strategy.get('expected_exit_date', '').replace('Z', '+00:00'))
+                        days_remaining = (exit_date - current_date).days
+                        total_days += max(0, days_remaining)
+                    except:
+                        total_days += 7  # Default 7 days
+                avg_days = total_days / len(swing_strategies) if swing_strategies else 0
+                st.metric("Avg Days Left", f"{avg_days:.0f}")
+            
+            st.info(f"Showing {len(swing_strategies)} strategies for {today}. Click 'View All Dates' to see strategies from other dates.")
+            
+            st.markdown("---")
+            
+            # Header row with consistent alignment
+            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 0.8, 1, 0.8, 0.8])
+            with col1:
+                st.markdown("**Stock**")
+            with col2:
+                st.markdown("**Entry (₹)**")
+            with col3:
+                st.markdown("**Take Profit (₹)**")
+            with col4:
+                st.markdown("**Stop Loss (₹)**")
+            with col5:
+                st.markdown("**Days**")
+            with col6:
+                st.markdown("**Status**")
+            with col7:
+                st.markdown("**Details**")
+            with col8:
+                st.markdown("**Delete**")
+            
+            st.markdown("<hr style='margin: 0.5rem 0;'/>", unsafe_allow_html=True)
+            
+            # Display swing strategies in rows
+            current_date = datetime.now()
+            for i, strategy in enumerate(swing_strategies):
+                # Get the values with proper fallbacks
+                symbol = strategy.get('symbol', 'UNKNOWN')
+                company_name = strategy.get('company_name', '')
                 
-                # Summary metrics
-                col1, col2, col3, col4 = st.columns(4)
+                # Calculate days remaining (7-day validity from creation)
+                created_at = strategy.get('created_at', '')
+                try:
+                    if created_at:
+                        created_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        days_remaining = 7 - (current_date - created_date).days
+                        days_remaining = max(0, min(7, days_remaining))  # Clamp between 0 and 7
+                    else:
+                        days_remaining = 7  # Default to 7 days if no creation date
+                except Exception as e:
+                    logger.warning(f"Error calculating days remaining for {symbol}: {str(e)}")
+                    days_remaining = 7
                 
-                with col1:
-                    st.metric("Total Strategies", len(swing_strategies))
+                current_price = strategy.get('current_price', 0)
                 
-                with col2:
-                    high_confidence = len([s for s in swing_strategies if s.get('confidence', 0) >= 80])
-                    st.metric("High Confidence", high_confidence)
+                # Get entry/exit levels with proper fallbacks
+                entry_price = strategy.get('entry_price', current_price)
+                take_profit = strategy.get('take_profit', 0)
+                stop_loss = strategy.get('stop_loss', 0)
                 
-                with col3:
-                    avg_risk_reward = sum(s.get('risk_reward_ratio', 0) for s in swing_strategies) / len(swing_strategies) if swing_strategies else 0
-                    st.metric("Avg Risk-Reward", f"{avg_risk_reward:.2f}:1")
+                # If we have a 'levels' dictionary, use those values
+                if 'levels' in strategy and isinstance(strategy['levels'], dict):
+                    entry_price = strategy['levels'].get('entry_price', entry_price)
+                    take_profit = strategy['levels'].get('take_profit', take_profit)
+                    stop_loss = strategy['levels'].get('stop_loss', stop_loss)
                 
-                with col4:
-                    # Calculate days to expiry
-                    current_date = datetime.now()
-                    total_days = 0
-                    for strategy in swing_strategies:
-                        try:
-                            exit_date = datetime.fromisoformat(strategy.get('expected_exit_date', '').replace('Z', '+00:00'))
-                            days_remaining = (exit_date - current_date).days
-                            total_days += max(0, days_remaining)
-                        except:
-                            total_days += 7  # Default 7 days
-                    avg_days = total_days / len(swing_strategies) if swing_strategies else 0
-                    st.metric("Avg Days Left", f"{avg_days:.0f}")
+                # Ensure we have valid values
+                entry_price = entry_price or current_price
+                take_profit = take_profit or (entry_price * 1.02)  # Default 2% take profit
+                stop_loss = stop_loss or (entry_price * 0.98)  # Default 2% stop loss
                 
-                st.info(f"Showing {len(swing_strategies)} strategies for {today}. Click 'View All Dates' to see strategies from other dates.")
+                # Update the strategy dictionary with the calculated values
+                strategy.update({
+                    'entry_price': entry_price,
+                    'take_profit': take_profit,
+                    'stop_loss': stop_loss,
+                    'current_price': current_price
+                })
                 
-                st.markdown("---")
-                
-                # Header row with consistent alignment
-                col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 0.8, 1, 0.8, 0.8])
-                with col1:
-                    st.markdown("**Stock**")
-                with col2:
-                    st.markdown("**Entry (₹)**")
-                with col3:
-                    st.markdown("**Take Profit (₹)**")
-                with col4:
-                    st.markdown("**Stop Loss (₹)**")
-                with col5:
-                    st.markdown("**Days**")
-                with col6:
-                    st.markdown("**Status**")
-                with col7:
-                    st.markdown("**Actions**")
-                with col8:
-                    st.markdown("**Actions**")
-                
-                st.markdown("<hr style='margin: 0.5rem 0;'/>", unsafe_allow_html=True)
-                
-                # Display swing strategies in rows
-                for i, strategy in enumerate(swing_strategies):
-                    # Get the values with proper fallbacks
-                    symbol = strategy.get('symbol', 'UNKNOWN')
-                    company_name = strategy.get('company_name', '')
-                    current_price = strategy.get('current_price', 0)
-                    
-                    # Get entry/exit levels with proper fallbacks
-                    entry_price = strategy.get('entry_price', current_price)
-                    take_profit = strategy.get('take_profit', 0)
-                    stop_loss = strategy.get('stop_loss', 0)
-                    
-                    # If we have a 'levels' dictionary, use those values
-                    if 'levels' in strategy and isinstance(strategy['levels'], dict):
-                        entry_price = strategy['levels'].get('entry_price', entry_price)
-                        take_profit = strategy['levels'].get('take_profit', take_profit)
-                        stop_loss = strategy['levels'].get('stop_loss', stop_loss)
-                    
-                    # Ensure we have valid values
-                    entry_price = entry_price or current_price
-                    take_profit = take_profit or (entry_price * 1.02)  # Default 2% take profit
-                    stop_loss = stop_loss or (entry_price * 0.98)  # Default 2% stop loss
-                    
-                    # Update the strategy dictionary with the calculated values
-                    strategy.update({
-                        'entry_price': entry_price,
-                        'take_profit': take_profit,
-                        'stop_loss': stop_loss,
-                        'current_price': current_price
-                    })
-                    
-                    # Display the row
-                    ExpandableUI.display_swing_strategy_row(strategy, i)
-                    
-                    # Check if add to watchlist button was clicked
-                    if st.session_state.get(f"add_swing_to_watchlist_{i}", False):
-                        # Convert swing strategy to recommendation format for watchlist
-                        watchlist_item = {
-                            'symbol': symbol,
-                            'company_name': company_name,
-                            'current_price': current_price,
-                            'recommendation': 'BUY',
-                            'confidence': strategy.get('confidence', 0),
-                            'target_price': take_profit,
-                            'stop_loss': stop_loss,
-                            'entry_price': entry_price,
-                            'reasoning': f"Swing trading strategy: {strategy.get('strategy_name', '')}",
-                            'created_at': datetime.now().isoformat()
-                        }
-                        self.add_to_watchlist(watchlist_item)
-                        st.session_state[f"add_swing_to_watchlist_{i}"] = False
-                        st.rerun()
-            else:
-                st.info("No swing trading plans available. Generate BUY recommendations first.")
+                # Display the row
+                ExpandableUI.display_swing_strategy_row(strategy, i)
         else:
             st.info("No swing trading plans available. Generate BUY recommendations first.")
     
@@ -2644,24 +2670,74 @@ class StreamlitTradingApp:
             st.session_state.analysis_in_progress = False
     
     def analyze_manual_stock(self, symbol: str):
-        """Analyze a manually entered stock."""
+        """Analyze a manually entered stock with fallback to EQUITY_L.csv for symbol lookup."""
         with st.spinner(f"🔍 Analyzing {symbol}..."):
             try:
+                # Try with the provided symbol first
                 symbol_with_suffix = f"{symbol}.NS"
+                company_name = None
                 
-                # Get technical analysis
+                # Get technical analysis with the original symbol
                 technical_data = self.technical_analyzer.analyze_stock(symbol_with_suffix)
-                if not technical_data:
-                    st.error(f"No data available for {symbol}")
+                
+                # If no technical data, try with company name lookup from EQUITY_L.csv
+                if not technical_data or not technical_data.get('current_price'):
+                    # Try to find the company name from the symbol
+                    stock_info = get_stock_data(symbol)
+                    if stock_info and stock_info.get('company_name'):
+                        company_name = stock_info['company_name']
+                        st.info(f"Found company name: {company_name}")
+                        
+                        # Try again with the found symbol
+                        symbol = stock_info['symbol']
+                        symbol_with_suffix = f"{symbol}.NS"
+                        technical_data = self.technical_analyzer.analyze_stock(symbol_with_suffix)
+                
+                # If still no data, show error and return
+                if not technical_data or not technical_data.get('current_price'):
+                    st.error(f"❌ No data available for {symbol}.")
+                    
+                    # Try to find similar symbols in EQUITY_L.csv
+                    similar_symbols = []
+                    try:
+                        from utils.stock_utils import load_equity_data
+                        df = load_equity_data()
+                        if not df.empty:
+                            matches = df[df['SYMBOL'].str.contains(symbol, case=False, na=False)]
+                            if not matches.empty:
+                                similar_symbols = matches['SYMBOL'].tolist()
+                    except Exception as e:
+                        logger.error(f"Error finding similar symbols: {str(e)}")
+                    
+                    if similar_symbols:
+                        st.warning(f"Did you mean one of these? {', '.join(similar_symbols[:5])}")
                     return
                 
                 # Get fundamental analysis
                 fundamental_data = self.fundamental_analyzer.get_financial_data(symbol_with_suffix)
                 
+                # If fundamental data is missing, try to enhance it with our utility
+                if not fundamental_data or not fundamental_data.get('company_name'):
+                    stock_info = get_stock_data(symbol, company_name)
+                    if stock_info:
+                        if not fundamental_data:
+                            fundamental_data = {}
+                        fundamental_data.update({
+                            'company_name': stock_info.get('company_name', symbol),
+                            'sector': stock_info.get('sector', ''),
+                            'market_cap': stock_info.get('market_cap'),
+                            'pe_ratio': stock_info.get('pe_ratio')
+                        })
+                
                 # Get news articles for this stock
                 news_articles = []
+                search_terms = [symbol]
+                if company_name:
+                    search_terms.extend(company_name.split()[:3])  # First few words of company name
+                
                 for article in st.session_state.news_articles:
-                    if symbol.lower() in article.get('title', '').lower() or symbol.lower() in article.get('description', '').lower():
+                    article_text = (article.get('title', '') + ' ' + article.get('description', '')).lower()
+                    if any(term.lower() in article_text for term in search_terms):
                         news_articles.append(article)
                 
                 # Get comprehensive Groq AI analysis
@@ -2669,7 +2745,7 @@ class StreamlitTradingApp:
                     symbol, technical_data, fundamental_data, news_articles
                 )
                 
-                # Get Gemini AI analysis
+                # Get Gemini AI analysis if available
                 gemini_analysis = None
                 if self.gemini_analyzer.initialized:
                     gemini_analysis = self.gemini_analyzer.analyze_stock_comprehensive(
@@ -2701,7 +2777,7 @@ class StreamlitTradingApp:
                     # Create a single recommendation list for saving
                     single_recommendation = [{
                         'symbol': symbol,
-                        'company_name': technical_data.get('company_name', symbol),
+                        'company_name': technical_data.get('company_name', company_name or symbol),
                         'current_price': technical_data.get('current_price', 0),
                         'recommendation': 'BUY',
                         'action': 'BUY',
@@ -2718,10 +2794,11 @@ class StreamlitTradingApp:
                     # Save BUY recommendation date-wise
                     self._auto_save_buy_recommendations_for_manual(single_recommendation)
                 
-                st.success(f"✅ Analysis complete for {symbol}")
+                st.success(f"✅ Analysis complete for {symbol} ({company_name or 'N/A'})")
                 
             except Exception as e:
                 st.error(f"❌ Error analyzing {symbol}: {str(e)}")
+                logger.exception(f"Error in analyze_manual_stock for {symbol}")
     
     def display_manual_analysis_result(self):
         """Display manual analysis result."""

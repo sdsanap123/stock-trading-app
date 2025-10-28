@@ -609,10 +609,11 @@ class ExpandableUI:
                     else:
                         st.session_state[f"expanded_{expander_key}"] = True
             
-            # Actions column with Watchlist button
+            # Actions column with Add to Watchlist button
             with col7:
-                if show_actions and st.button("➕ Watchlist", key=f"watchlist_btn_{index}",
-                                           help="Add to watchlist"):
+                if st.button("👁️", 
+                           key=f"watchlist_btn_{index}",
+                           help="Add to Watchlist"):
                     # This will be handled by the parent component
                     st.session_state[f"add_to_watchlist_{index}"] = True
             
@@ -1331,7 +1332,14 @@ class ExpandableUI:
                 st.write(f"₹{stop_loss:.2f}")
             
             with col5:
-                st.write(f"{days_remaining}d")
+                # Show days remaining with color coding
+                days_text = f"{days_remaining}d"
+                if days_remaining <= 1:
+                    st.markdown(f"<span style='color: #dc3545; font-weight: bold;'>{days_text}</span>", unsafe_allow_html=True)
+                elif days_remaining <= 3:
+                    st.markdown(f"<span style='color: #ffc107;'>{days_text}</span>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<span style='color: #28a745;'>{days_text}</span>", unsafe_allow_html=True)
             
             with col6:
                 # Calculate current status based on price action
@@ -1376,6 +1384,18 @@ class ExpandableUI:
                     else:
                         st.session_state[f"expanded_{expander_key}"] = True
             
+            # Add delete button in the actions column
+            with col8:
+                if st.button("🗑️", key=f"delete_{expander_key}", 
+                           help="Delete this strategy"):
+                    if 'data_persistence' in st.session_state:
+                        deleted = st.session_state.data_persistence.delete_swing_strategy(symbol)
+                        if deleted:
+                            st.success(f"Deleted strategy for {symbol}")
+                            st.rerun()
+                        else:
+                            st.error(f"Failed to delete strategy for {symbol}")
+            
             # Show the expander if it's toggled on
             if st.session_state.get(f"expanded_{expander_key}", False):
                 # Use container to create a modal-like appearance
@@ -1402,12 +1422,7 @@ class ExpandableUI:
                         st.rerun()
             
             with col8:
-                # Add to watchlist button
-                if show_actions:
-                    watchlist_key = f"add_swing_watchlist_{index}_{symbol}"
-                    if st.button("👀", key=watchlist_key, help="Add to watchlist"):
-                        # This will be handled by the calling function
-                        st.session_state[f"add_swing_to_watchlist_{index}"] = True
+                pass
             
             return False
             

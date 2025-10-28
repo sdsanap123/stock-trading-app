@@ -577,22 +577,52 @@ class DataPersistenceManager:
                 return True
             return False
         except Exception as e:
-            logger.error(f"Error deleting recommendations: {str(e)}")
+            logger.error(f"Error deleting recommendations for {date_str}: {str(e)}")
             return False
-    
-    def delete_swing_strategies_by_date(self, date_str: str) -> bool:
-        """Delete swing strategies for a specific date."""
+            
+    def delete_swing_strategy(self, symbol: str, date_str: str = None) -> bool:
+        """
+        Delete a specific swing strategy by symbol and date.
+        
+        Args:
+            symbol: The stock symbol to delete
+            date_str: The date string in YYYY-MM-DD format. If None, uses today's date.
+            
+        Returns:
+            bool: True if the strategy was deleted, False otherwise
+        """
         try:
+            if date_str is None:
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                
             if date_str in self.swing_strategies:
-                del self.swing_strategies[date_str]
-                self._save_swing_strategies()
-                logger.info(f"Deleted swing strategies for {date_str}")
-                return True
+                # Filter out the strategy with the matching symbol
+                initial_count = len(self.swing_strategies[date_str])
+                self.swing_strategies[date_str] = [
+                    s for s in self.swing_strategies[date_str]
+                    if s.get('symbol', '').upper() != symbol.upper()
+                ]
+                
+                # If strategies were removed, save the changes
+                if len(self.swing_strategies[date_str]) < initial_count:
+                    self._save_swing_strategies()
+                    logger.info(f"Deleted swing strategy for {symbol} on {date_str}")
+                    return True
+                    
             return False
+            
         except Exception as e:
-            logger.error(f"Error deleting swing strategies: {str(e)}")
+            logger.error(f"Error deleting swing strategy for {symbol} on {date_str}: {str(e)}")
             return False
-    
+            
+    def get_all_recommendations(self) -> Dict[str, List[Dict]]:
+        """Get all recommendations organized by date."""
+        return self.recommendations.copy()
+        
+    def get_watchlist(self) -> List[Dict]:
+        """Get current watchlist."""
+        return self.watchlist.copy()
+        
     def clear_watchlist(self) -> bool:
         """Clear all watchlist items."""
         try:
