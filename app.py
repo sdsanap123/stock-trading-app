@@ -1406,6 +1406,15 @@ class StreamlitTradingApp:
         """Watchlist tab."""
         st.header("👀 Watchlist Management")
         
+        # Auto-update prices if it's the first load or refresh interval has passed
+        last_update = st.session_state.get('last_price_update')
+        refresh_interval = 300  # 5 minutes in seconds
+        
+        if last_update is None or (datetime.now() - last_update).total_seconds() > refresh_interval:
+            with st.spinner("Updating stock prices..."):
+                self.update_watchlist_prices()
+            st.session_state['last_price_update'] = datetime.now()
+        
         # Check for delete actions from watchlist details
         for key in list(st.session_state.keys()):
             if key.startswith('delete_from_watchlist_'):
@@ -1457,16 +1466,33 @@ class StreamlitTradingApp:
                 st.metric("Active", active_count)
             
             with col3:
-                # Calculate total P&L
-                total_pnl = 0
+                # Calculate simple average of percentage returns
+                total_pnl_percent = 0
+                valid_stocks = 0
+                
                 for item in st.session_state.watchlist:
                     entry_price = item.get('entry_price', 0)
                     current_price = item.get('current_price', 0)
-                    if entry_price > 0:
-                        pnl = ((current_price - entry_price) / entry_price) * 100
-                        total_pnl += pnl
-                avg_pnl = total_pnl / len(st.session_state.watchlist) if st.session_state.watchlist else 0
-                st.metric("Avg P&L", f"{avg_pnl:.1f}%")
+                    
+                    if entry_price > 0:  # Only calculate if we have an entry price
+                        pnl_percent = ((current_price - entry_price) / entry_price) * 100
+                        total_pnl_percent += pnl_percent
+                        valid_stocks += 1
+                
+                # Calculate average P&L percentage
+                if valid_stocks > 0:
+                    avg_pnl_percent = total_pnl_percent / valid_stocks
+                    
+                    # Add color to the P&L display
+                    pnl_color = "#28a745" if avg_pnl_percent > 0 else "#dc3545" if avg_pnl_percent < 0 else "#6c757d"
+                    st.markdown(
+                        f'<div style="font-size: 1.5rem; color: {pnl_color};">' 
+                        f'<b>Avg P&L</b><br>{avg_pnl_percent:+.1f}%' 
+                        '</div>', 
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.metric("Avg P&L", "0.0%")
             
             with col4:
                 st.metric("Actions", "View Saved")

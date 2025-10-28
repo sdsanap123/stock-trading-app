@@ -1334,13 +1334,34 @@ class ExpandableUI:
                 st.write(f"{days_remaining}d")
             
             with col6:
-                # Risk-Reward with color
-                if risk_reward_ratio >= 2.0:
-                    st.markdown(f'<span style="color: #28a745;">{risk_reward_ratio:.2f}:1</span>', unsafe_allow_html=True)
-                elif risk_reward_ratio >= 1.5:
-                    st.markdown(f'<span style="color: #ffc107;">{risk_reward_ratio:.2f}:1</span>', unsafe_allow_html=True)
+                # Calculate current status based on price action
+                if current_price <= stop_loss * 1.01:  # Within 1% of stop loss
+                    status_emoji = "🔴"  # Risk
+                    status_text = "Risk: Near Stop Loss"
+                    status_color = "#dc3545"
+                elif current_price >= take_profit * 0.99:  # Within 1% of take profit
+                    status_emoji = "🟢"  # Target
+                    status_text = "Target: Near Take Profit"
+                    status_color = "#28a745"
                 else:
-                    st.markdown(f'<span style="color: #dc3545;">{risk_reward_ratio:.2f}:1</span>', unsafe_allow_html=True)
+                    # Calculate distance to stop and target as percentage
+                    stop_distance_pct = ((current_price - stop_loss) / stop_loss) * 100
+                    target_distance_pct = ((take_profit - current_price) / current_price) * 100
+                    
+                    if stop_distance_pct < 1.5 or target_distance_pct < 1.5:
+                        status_emoji = "🟡"  # Caution
+                        status_text = "Caution: Near Key Level"
+                        status_color = "#ffc107"
+                    else:
+                        status_emoji = "🟢"  # Safe
+                        status_text = "Safe: Within Range"
+                        status_color = "#28a745"
+                
+                # Display status with tooltip
+                st.markdown(
+                    f'<span style="color: {status_color};" title="{status_text}">{status_emoji} {status_text.split(":")[0]}</span>', 
+                    unsafe_allow_html=True
+                )
             
             with col7:
                 # Create a unique key for the expander
