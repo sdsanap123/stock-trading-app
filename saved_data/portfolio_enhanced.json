@@ -1,0 +1,16 @@
+[
+  {
+    "symbol": "HPIL.NS",
+    "quantity": 100.0,
+    "buy_price": 50.42,
+    "buy_date": "2025-10-31",
+    "notes": ""
+  },
+  {
+    "symbol": "PPL.NS",
+    "quantity": 6.0,
+    "buy_price": 20.08,
+    "buy_date": "2025-10-31",
+    "notes": ""
+  }
+]

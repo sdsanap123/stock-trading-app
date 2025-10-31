@@ -1660,208 +1660,297 @@ class StreamlitTradingApp:
         if 'manual_analysis_result' in st.session_state:
             self.display_manual_analysis_result()
     
-    def portfolio_tab(self):
-        """Portfolio tab."""
-        st.header("📊 Portfolio Tracking")
+    def _handle_portfolio_upload(self, uploaded_file):
+        """Handle the portfolio CSV file upload and process the data.
         
-        # Check if portfolio exists in session state, initialize if not
-        if 'portfolio' not in st.session_state:
-            st.session_state.portfolio = []
-        
-        # Add new stock to portfolio
-        with st.expander("➕ Add Stock to Portfolio"):
-            with st.form("add_stock_form"):
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    symbol = st.text_input("Symbol", "", help="Stock symbol (e.g., RELIANCE.NS)")
-                with col2:
-                    quantity = st.number_input("Quantity", min_value=1, value=1, step=1)
-                with col3:
-                    buy_price = st.number_input("Buy Price (₹)", min_value=0.01, value=100.0, step=0.01)
-                with col4:
-                    buy_date = st.date_input("Buy Date", value=datetime.now())
-                
-                if st.form_submit_button("Add to Portfolio"):
-                    if symbol:
-                        # Get current price
+        Args:
+            uploaded_file: The uploaded file object from Streamlit
+            
+        Returns:
+            bool: True if import was successful, False otherwise
+        """
+        try:
+            # Read the CSV file
+            try:
+                # Try different encodings if the default fails
+                try:
+                    df = pd.read_csv(uploaded_file)
+                except UnicodeDecodeError:
+                    for encoding in ['utf-8', 'latin1', 'ISO-8859-1', 'windows-1252']:
                         try:
-                            stock = yf.Ticker(symbol)
-                            current_price = stock.history(period='1d')['Close'].iloc[-1]
+                            uploaded_file.seek(0)  # Reset file pointer
+                            df = pd.read_csv(uploaded_file, encoding=encoding)
+                            break
+                        except UnicodeDecodeError:
+                            continue
+                    else:
+                        raise ValueError("Could not decode the file. Please save it with UTF-8 encoding.")
+                
+                # Normalize column names (case and space insensitive)
+                column_map = {col.lower().strip(): col for col in df.columns}
+                
+                # Map common column name variations
+                symbol_col = next((col for col in ['symbol', 'ticker', 'stock', 'company'] 
+                                 if col in column_map), None)
+                qty_col = next((col for col in ['quantity', 'qty', 'shares', 'units'] 
+                              if col in column_map), None)
+                price_col = next((col for col in ['buy_price', 'price', 'cost', 'avg_price'] 
+                                if col in column_map), None)
+                
+                # Check for required columns
+                missing_cols = []
+                if not symbol_col:
+                    missing_cols.append("symbol/ticker")
+                if not qty_col:
+                    missing_cols.append("quantity/shares")
+                if not price_col:
+                    missing_cols.append("buy_price/price")
+                
+                if missing_cols:
+                    st.error(f"❌ Missing required columns: {', '.join(missing_cols)}")
+                    st.info("💡 Please ensure your CSV includes columns for symbol, quantity, and buy_price.")
+                    return False
+                
+                # Process each row in the CSV
+                success_count = 0
+                invalid_entries = []
+                processed_symbols = set()
+                
+                # Show processing progress
+                progress_bar = st.progress(0)
+                total_rows = len(df)
+                
+                for idx, row in df.iterrows():
+                    try:
+                        # Update progress
+                        progress = (idx + 1) / total_rows
+                        progress_bar.progress(min(progress, 1.0))
+                        
+                        # Get company name from the row
+                        company_name = str(row[symbol_col]).strip()
+                        if not company_name or pd.isna(company_name):
+                            invalid_entries.append(f"Row {idx+2}: Empty company name")
+                            continue
                             
-                            # Add to portfolio
+                        # Skip header if it appears in the data
+                        if company_name.lower() in ['symbol', 'ticker', 'company', 'stock']:
+                            continue
+                            
+                        # Check for duplicate symbols in the file
+                        if company_name in processed_symbols:
+                            invalid_entries.append(f"{company_name} (duplicate entry, only the first one will be processed)")
+                            continue
+                            
+                        processed_symbols.add(company_name)
+                        
+                        # Clean and validate quantity
+                        try:
+                            quantity_str = str(row[qty_col]).strip()
+                            # Remove any non-numeric characters except decimal point
+                            quantity_str = ''.join(c for c in quantity_str if c.isdigit() or c in '.')
+                            if not quantity_str:
+                                raise ValueError("Empty quantity")
+                                
+                            quantity = float(quantity_str)
+                            if quantity <= 0:
+                                invalid_entries.append(f"{company_name} (invalid quantity: {row[qty_col]} - must be positive)")
+                                continue
+                            if not quantity.is_integer():
+                                invalid_entries.append(f"{company_name} (quantity must be a whole number: {row[qty_col]})")
+                                continue
+                            quantity = int(quantity)
+                                
+                        except (ValueError, TypeError) as e:
+                            invalid_entries.append(f"{company_name} (invalid quantity: {row[qty_col]})")
+                            continue
+                            
+                        # Clean and validate buy price
+                        try:
+                            # Handle various currency symbol representations and commas in the price
+                            price_str = str(row[price_col]).strip()
+                            
+                            # Remove any non-numeric characters except decimal point and minus sign
+                            price_str = ''.join(c for c in price_str if c.isdigit() or c in '.-')
+                            
+                            # If empty after cleaning, it's an invalid price
+                            if not price_str:
+                                raise ValueError("Empty price after cleaning")
+                                
+                            buy_price = float(price_str)
+                            
+                            if buy_price <= 0:
+                                invalid_entries.append(f"{company_name} (invalid price: {row[price_col]} - must be positive)")
+                                continue
+                                
+                        except (ValueError, TypeError) as e:
+                            invalid_entries.append(f"{company_name} (invalid price format: {row[price_col]})")
+                            continue
+                        
+                        # Get purchase date if available
+                        purchase_date = None
+                        date_col = next((col for col in ['purchase_date', 'date', 'buy_date'] 
+                                      if col in column_map), None)
+                        
+                        if date_col and date_col in row and pd.notna(row[date_col]):
+                            try:
+                                purchase_date = pd.to_datetime(row[date_col]).strftime('%Y-%m-%d')
+                            except (ValueError, TypeError):
+                                invalid_entries.append(f"{company_name} (invalid date format: {row[date_col]}, using today's date)")
+                        
+                        # Add to portfolio
+                        if hasattr(self, 'portfolio_manager'):
+                            # Use PortfolioManager if available
+                            symbol = company_name.upper()
+                            if not symbol.endswith(('.NS', '.BO')):
+                                symbol = f"{symbol}.NS"
+                                
+                            if self.portfolio_manager.buy_stock(
+                                symbol=symbol,
+                                quantity=quantity,
+                                price=buy_price,
+                                date=purchase_date,
+                                is_import=True
+                            ):
+                                success_count += 1
+                            else:
+                                invalid_entries.append(f"{company_name} (failed to add to portfolio)")
+                        else:
+                            # Fallback to session state portfolio
                             st.session_state.portfolio.append({
-                                'symbol': symbol.upper(),
+                                'symbol': company_name.upper(),
                                 'quantity': quantity,
                                 'buy_price': buy_price,
-                                'current_price': current_price,
-                                'buy_date': buy_date.isoformat(),
+                                'current_price': buy_price,
+                                'buy_date': purchase_date or datetime.now().strftime('%Y-%m-%d'),
                                 'last_updated': datetime.now().isoformat()
                             })
-                            st.success(f"Added {symbol.upper()} to portfolio!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error adding stock: {str(e)}")
-        
-        # Display portfolio summary
-        if st.session_state.portfolio:
-            # Update current prices
-            if st.button("🔄 Update Prices", key="update_portfolio_prices"):
-                with st.spinner("Updating prices..."):
-                    for item in st.session_state.portfolio:
-                        try:
-                            stock = yf.Ticker(item['symbol'])
-                            item['current_price'] = stock.history(period='1d')['Close'].iloc[-1]
-                            item['last_updated'] = datetime.now().isoformat()
-                        except:
-                            pass
-                st.rerun()
+                            success_count += 1
+                            
+                    except Exception as e:
+                        logger.exception(f"Error processing row {idx+2}")
+                        invalid_entries.append(f"Row {idx+2}: {str(e)}")
+                
+                # Complete progress bar
+                progress_bar.progress(1.0)
+                
+                # Show results
+                if success_count > 0:
+                    st.success(f"✅ Successfully imported {success_count} out of {len(df)} holdings")
+                    
+                    # Show quick summary of imported holdings
+                    with st.expander("📊 Import Summary", expanded=True):
+                        st.write(f"• Total Holdings: {success_count}")
+                        if invalid_entries:
+                            st.warning(f"• {len(invalid_entries)} issues found (see below for details)")
+                        st.info("💡 Your portfolio has been updated. Check the 'My Portfolio' section to view your holdings.")
+                
+                if invalid_entries:
+                    with st.expander("⚠️ Import Issues", expanded=False):
+                        st.warning(f"Found {len(invalid_entries)} issues during import:")
+                        for issue in invalid_entries:
+                            st.write(f"- {issue}")
+                        
+                        st.info("""
+                        **Tips for fixing common issues:**
+                        - Ensure stock symbols match NSE/BSE format (e.g., 'RELIANCE' or 'RELIANCE.NS')
+                        - Quantities must be whole numbers
+                        - Prices should be positive numbers (commas are automatically handled)
+                        - Check for any extra spaces or special characters
+                        """)
+                
+                return success_count > 0
+                
+            except pd.errors.EmptyDataError:
+                st.error("❌ The uploaded file is empty.")
+                return False
+                
+            except pd.errors.ParserError as e:
+                st.error(f"❌ Error parsing the CSV file: {str(e)}")
+                st.info("💡 Please ensure the file is a valid CSV and try again.")
+                return False
+                
+            except Exception as e:
+                logger.exception("Error reading CSV file")
+                st.error(f"❌ Error processing the file: {str(e)}")
+                return False
+                
+        except Exception as e:
+            logger.exception("Error in portfolio upload")
+            st.error(f"❌ An unexpected error occurred: {str(e)}")
+            return False
+    
+    def _download_portfolio_template(self):
+        """Generate and download a portfolio template CSV file."""
+        try:
+            # Create a sample portfolio CSV
+            template_data = {
+                'symbol': ['RELIANCE', 'TCS', 'HDFCBANK'],
+                'quantity': [10, 5, 8],
+                'buy_price': [2500.50, 3500.75, 1500.25],
+                'purchase_date': ['2023-01-15', '2023-02-20', '2023-03-10']
+            }
             
-            # Calculate portfolio metrics
-            total_investment = sum(item['quantity'] * item['buy_price'] for item in st.session_state.portfolio)
-            current_value = sum(item['quantity'] * item.get('current_price', item['buy_price']) for item in st.session_state.portfolio)
-            total_pnl = current_value - total_investment
-            total_pnl_pct = (total_pnl / total_investment * 100) if total_investment > 0 else 0
+            # Create DataFrame
+            df = pd.DataFrame(template_data)
             
-            # Display summary metrics
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total Investment", f"₹{total_investment:,.2f}")
-            with col2:
-                st.metric("Current Value", f"₹{current_value:,.2f}")
-            with col3:
-                st.metric("Total P&L", 
-                         f"₹{total_pnl:+,.2f}", 
-                         f"{total_pnl_pct:+.2f}%",
-                         delta_color="normal" if total_pnl >= 0 else "inverse")
+            # Convert to CSV
+            csv = df.to_csv(index=False).encode('utf-8')
             
-            # Add sorting controls
-            st.markdown("### Your Portfolio")
-            sort_col1, sort_col2 = st.columns(2)
-            with sort_col1:
-                sort_by = st.selectbox(
-                    "Sort by",
-                    ["Symbol", "P&L %", "Current Value", "Quantity", "Buy Date"],
-                    key="portfolio_sort_by"
-                )
-            with sort_col2:
-                sort_order = st.radio(
-                    "Order",
-                    ["Ascending", "Descending"],
-                    index=1,  # Default to descending for most useful sort orders
-                    horizontal=True,
-                    key="portfolio_sort_order"
-                )
+            # Download button
+            st.download_button(
+                label="💾 Download Portfolio Template",
+                data=csv,
+                file_name="portfolio_template.csv",
+                mime="text/csv",
+                help="Download a template CSV file with example data"
+            )
             
-            # Sort the portfolio
-            sorted_portfolio = st.session_state.portfolio.copy()
-            reverse_sort = (sort_order == "Descending")
+        except Exception as e:
+            logger.error(f"Error generating template: {str(e)}")
+            st.error("❌ Failed to generate template. Please try again.")
+    
+    def portfolio_tab(self):
+        """Portfolio tab with enhanced features."""
+        try:
+            # Import here to avoid circular imports
+            from components.enhanced_portfolio import render_enhanced_portfolio
             
-            if sort_by == "Symbol":
-                sorted_portfolio.sort(key=lambda x: x.get('symbol', '').upper(), reverse=reverse_sort)
-            elif sort_by == "P&L %":
-                sorted_portfolio.sort(
-                    key=lambda x: (
-                        (x.get('current_price', 0) - x.get('buy_price', 0)) / x.get('buy_price', 1) 
-                        if x.get('buy_price', 0) > 0 else 0
-                    ),
-                    reverse=reverse_sort
-                )
-            elif sort_by == "Current Value":
-                sorted_portfolio.sort(
-                    key=lambda x: x.get('quantity', 0) * x.get('current_price', 0), 
-                    reverse=reverse_sort
-                )
-            elif sort_by == "Quantity":
-                sorted_portfolio.sort(key=lambda x: x.get('quantity', 0), reverse=reverse_sort)
-            else:  # Buy Date
-                sorted_portfolio.sort(
-                    key=lambda x: x.get('buy_date', ''), 
-                    reverse=not reverse_sort  # Most recent first by default
-                )
-            
-            # Display portfolio table
+            # Add custom CSS for better styling
             st.markdown("""
             <style>
-            .portfolio-table {
-                width: 100%;
-                border-collapse: collapse;
-            }
-            .portfolio-table th, .portfolio-table td {
-                padding: 8px 12px;
-                text-align: left;
-                border-bottom: 1px solid #444;
-            }
-            .portfolio-table th {
-                background-color: #2d2d2d;
-                font-weight: bold;
-            }
-            .positive { color: #28a745; }
-            .negative { color: #dc3545; }
+                .stTabs [data-baseweb="tab-list"] {
+                    gap: 8px;
+                }
+                .stTabs [data-baseweb="tab"] {
+                    height: 50px;
+                    white-space: pre;
+                    background-color: #f0f2f6;
+                    border-radius: 4px 4px 0 0;
+                    gap: 1px;
+                    padding: 10px 20px;
+                }
+                .stTabs [data-baseweb="tab"]:hover {
+                    background-color: #e6e9ef;
+                }
+                .stTabs [aria-selected="true"] {
+                    background-color: white;
+                    border-bottom: 2px solid #FF4B4B;
+                }
+                .stTabs [data-testid="stMarkdownContainer"] > p {
+                    font-size: 1.1rem;
+                    font-weight: 600;
+                }
             </style>
             """, unsafe_allow_html=True)
             
-            # Table header
-            st.markdown("""
-            <table class="portfolio-table">
-                <tr>
-                    <th>Symbol</th>
-                    <th>Quantity</th>
-                    <th>Avg. Buy Price</th>
-                    <th>Current Price</th>
-                    <th>P&L</th>
-                    <th>Value</th>
-                    <th>Actions</th>
-                </tr>
-            """, unsafe_allow_html=True)
+            # Render the enhanced portfolio
+            render_enhanced_portfolio()
             
-            # Table rows
-            for item in sorted_portfolio:
-                symbol = item['symbol']
-                quantity = item['quantity']
-                buy_price = item['buy_price']
-                current_price = item.get('current_price', buy_price)
-                pnl = (current_price - buy_price) * quantity
-                pnl_pct = ((current_price - buy_price) / buy_price * 100) if buy_price > 0 else 0
-                value = quantity * current_price
-                
-                pnl_class = "positive" if pnl >= 0 else "negative"
-                pnl_sign = "+" if pnl >= 0 else ""
-                
-                st.markdown(f"""
-                <tr>
-                    <td><strong>{symbol}</strong></td>
-                    <td>{quantity:,}</td>
-                    <td>₹{buy_price:,.2f}</td>
-                    <td>₹{current_price:,.2f}</td>
-                    <td class="{pnl_class}">{pnl_sign}₹{abs(pnl):,.2f} ({pnl_sign}{abs(pnl_pct):.2f}%)</td>
-                    <td>₹{value:,.2f}</td>
-                    <td>
-                        <button onclick=\"
-                            const index = Array.from(document.querySelectorAll('td:first-child')).findIndex(td => td.textContent === \"{symbol}\");
-                            if (index !== -1) {{
-                                const deleteBtn = document.querySelectorAll('button[data-action=delete]')[index];
-                                deleteBtn.click();
-                            }}\" 
-                        style=\"background: none; border: none; color: #dc3545; cursor: pointer;\">
-                            🗑️
-                        </button>
-                    </td>
-                </tr>
-                """, unsafe_allow_html=True)
-                
-                # Handle delete action
-                if st.button("🗑️", key=f"delete_{symbol}", help=f"Remove {symbol} from portfolio", 
-                           type="secondary", use_container_width=True, data_action="delete"):
-                    st.session_state.portfolio = [p for p in st.session_state.portfolio if p['symbol'] != symbol]
-                    st.rerun()
-            
-            st.markdown("</table>", unsafe_allow_html=True)
-            
-            # Add some spacing
-            st.markdown("<br><br>", unsafe_allow_html=True)
-            
-        else:
-            st.info("Your portfolio is empty. Add stocks to get started!")
+        except Exception as e:
+            st.error(f"Error initializing portfolio: {str(e)}")
+            st.info("Please make sure all required components are properly installed.")
+            if st.button("Show Detailed Error"):
+                st.exception(e)
     
     def notifications_tab(self):
         """Notifications management tab."""
