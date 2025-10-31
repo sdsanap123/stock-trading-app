@@ -18,3 +18,4 @@ schedule>=1.2.0
 pytz>=2023.3
 fuzzywuzzy>=0.18.0
 python-Levenshtein>=0.27.1
+streamlit_extras
