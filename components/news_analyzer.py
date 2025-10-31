@@ -11,10 +11,13 @@ import requests
 import feedparser
 from textblob import TextBlob
 import logging
-from typing import Dict, List, Set
-from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional, Tuple, Set
 import re
+import random
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
+from .company_database import CompanyDatabase
+from typing import Optional
 
 # Get the directory of the current file
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -27,16 +30,95 @@ class NewsAnalyzer:
     """News analysis and sentiment calculation."""
     
     def __init__(self):
-        # Use only Indian stock market RSS feeds
         self.news_sources = [
-            'https://in.investing.com/rss/news_25.rss',      # Indian Stock Market News
-            'https://in.investing.com/rss/news_1062.rss',    # Indian Economy News
-            'https://in.investing.com/rss/news_356.rss',     # Indian Corporate News
-            'https://in.investing.com/rss/news_462.rss',     # Indian Banking News
-            'https://in.investing.com/rss/news_477.rss',     # Indian IPO News
-            'https://in.investing.com/rss/news_14.rss'       # Indian Market Analysis
+            'https://www.moneycontrol.com/rss/latestnews.xml',
+            'https://www.business-standard.com/rss/markets-106.rss',
+            'https://www.livemint.com/rss/markets',
+            'https://www.businesstoday.in/feeds/rssfeeds/section/stockstrends',
+            'https://www.money9.com/feed/',
+            'https://www.tradebrains.in/blog/feed/',
+            'https://www.equitypandit.com/category/latest-news/feed/',
+            'https://www.mind2markets.com/feed/'
         ]
+        # Initialize company database
+        self.company_db = CompanyDatabase('data/company_database.db')
+        # Import data from EQUITY_L.csv if database is empty
+        if not self.company_db.get_all_symbols():
+            csv_path = os.path.join(os.path.dirname(__file__), '..', 'EQUITY_L.csv')
+            if os.path.exists(csv_path):
+                count = self.company_db.import_from_csv(csv_path)
+                logger.info(f"Imported {count} companies to database")
         
+        # For backward compatibility
+        self.indian_stocks = set(self.company_db.get_all_symbols())
+        
+        # Cache for symbol lookups
+        self._symbol_cache = {}
+        self._name_to_symbol_cache = {}
+        self._populate_caches()
+        
+    def _populate_caches(self):
+        """Populate in-memory caches for faster lookups."""
+        for symbol in self.indian_stocks:
+            company = self.company_db.get_company_by_symbol(symbol)
+            if company:
+                self._symbol_cache[symbol] = company
+                self._name_to_symbol_cache[company.get('name', '').lower()] = symbol
+    
+    def get_symbol_from_name(self, name: str) -> Optional[str]:
+        """
+        Get stock symbol from company name.
+        
+        Args:
+            name: Company name to look up
+            
+        Returns:
+            str: Stock symbol if found, None otherwise
+        """
+        if not name:
+            return None
+            
+        # Check cache first
+        name_lower = name.lower().strip()
+        if name_lower in self._name_to_symbol_cache:
+            return self._name_to_symbol_cache[name_lower]
+            
+        # Try to find a matching company
+        results = self.company_db.search_companies(name, limit=1)
+        if results:
+            symbol = results[0].get('symbol')
+            if symbol:
+                # Update cache
+                self._name_to_symbol_cache[name_lower] = symbol
+                return symbol
+                
+        return None
+        
+    def get_company_by_symbol(self, symbol: str) -> Optional[Dict]:
+        """
+        Get company details by symbol with caching.
+        
+        Args:
+            symbol: Stock symbol to look up
+            
+        Returns:
+            dict: Company details or None if not found
+        """
+        if not symbol:
+            return None
+            
+        symbol_upper = symbol.upper().strip()
+        
+        # Check cache first
+        if symbol_upper in self._symbol_cache:
+            return self._symbol_cache[symbol_upper]
+            
+        # Query database if not in cache
+        company = self.company_db.get_company_by_symbol(symbol_upper)
+        if company:
+            self._symbol_cache[symbol_upper] = company
+            
+        return company
         # Set a user agent to prevent 403 Forbidden errors
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -135,32 +217,65 @@ class NewsAnalyzer:
         return stocks
     
     def _is_relevant_news(self, text: str) -> bool:
-        """Check if the text is relevant Indian market news with strict filtering"""
-        if not text or len(text.strip()) < 20:  # Skip very short texts
+        """
+        Check if the news is relevant to Indian markets
+        
+        Args:
+            text: News text to analyze
+            
+        Returns:
+            bool: True if the news is relevant, False otherwise
+        """
+        if not text:
             return False
             
         text_lower = text.lower()
         text_upper = text.upper()
         
-        # Skip if contains any non-Indian market terms
-        for term in self.exclude_terms:
-            if term in text_lower:
-                return False
+        # Check for Indian market indicators
+        india_indicators = [
+            'india', 'indian', 'bse', 'nse', 'sensex', 'nifty', 'mumbai', 'delhi', 'bengaluru',
+            'rupee', 'rs.', 'inr', '₹', 'sebi', 'rbi', 'bse sensex', 'nse nifty',
+            'bombay stock exchange', 'national stock exchange', 'nifty 50', 'sensex 30',
+            'nifty bank', 'bank nifty', 'nse nifty 50', 'bse sensex 30'
+        ]
         
-        # Must contain at least one Indian market indicator
-        has_india_indicator = any(
-            re.search(r'\b' + re.escape(term) + r'\b', text_lower)
-            for term in self.india_indicators
-        )
+        has_india_indicator = any(indicator in text_lower for indicator in india_indicators)
         
-        # Must contain at least one Indian stock symbol (3+ characters to avoid false positives)
-        has_indian_stock = any(
-            len(stock) >= 3 and 
-            re.search(r'\b' + re.escape(stock) + r'\b', text_upper)
-            for stock in self.indian_stocks
-        )
+        # Check for Indian stock symbols using database with more robust matching
+        has_indian_stock = False
+        found_stocks = set()
         
-        # Must contain at least one of the required indicators
+        # First check for exact symbol matches
+        for symbol in self.indian_stocks:
+            if len(symbol) < 3:  # Skip very short symbols to avoid false positives
+                continue
+                
+            # Look for the symbol as a whole word to avoid partial matches
+            if re.search(rf'\b{re.escape(symbol)}\b', text_upper):
+                company_info = self.company_db.get_company_by_symbol(symbol)
+                if company_info:
+                    found_stocks.add(symbol)
+                    has_indian_stock = True
+        
+        # If no exact symbol matches, try fuzzy matching with company names
+        if not has_indian_stock:
+            # Extract potential company names (words starting with capital letters)
+            potential_names = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', text)
+            
+            for name in potential_names:
+                # Skip very short names or common words
+                if len(name) < 4 or name.lower() in ['india', 'indian', 'market', 'stock', 'stocks']:
+                    continue
+                    
+                # Search for companies with similar names
+                similar_companies = self.company_db.search_companies(name, limit=1)
+                if similar_companies:
+                    has_indian_stock = True
+                    found_stocks.add(similar_companies[0]['symbol'])
+                    break
+        
+        # Must contain at least one of the required indicators or a valid stock
         if not (has_india_indicator or has_indian_stock):
             return False
             
@@ -168,35 +283,128 @@ class NewsAnalyzer:
         if self._is_false_positive(text_lower):
             return False
             
+        # If we found stocks, store them for later use
+        if has_indian_stock:
+            self._last_found_stocks = list(found_stocks)
+            
         return True
         
+    def get_company_info(self, symbol: str) -> Optional[Dict]:
+        """
+        Get company information by symbol
+        
+        Args:
+            symbol: Stock symbol to look up
+            
+        Returns:
+            Optional[Dict]: Company details or None if not found
+        """
+        return self.company_db.get_company_by_symbol(symbol)
+
+    def search_companies(self, search_term: str, limit: int = 10) -> List[Dict]:
+        """
+        Search for companies by name or symbol with enhanced matching
+        
+        Args:
+            search_term: Term to search for in company names or symbols
+            limit: Maximum number of results to return
+            
+        Returns:
+            List[Dict]: List of matching companies with additional metadata
+        """
+        if not search_term or len(search_term.strip()) < 2:
+            return []
+            
+        # First try exact symbol match
+        company = self.get_company_by_symbol(search_term)
+        if company:
+            return [company]
+            
+        # Then try name search
+        results = self.company_db.search_companies(search_term, limit)
+        
+        # Enhance results with additional data if needed
+        for result in results:
+            symbol = result.get('symbol')
+            if symbol and symbol not in self._symbol_cache:
+                self._symbol_cache[symbol] = result
+                
+        return results
+
+    def is_valid_stock_symbol(self, symbol: str) -> bool:
+        """
+        Check if a symbol exists in the database with caching
+        
+        Args:
+            symbol: Stock symbol to check (case-insensitive)
+            
+        Returns:
+            bool: True if symbol exists, False otherwise
+        """
+        if not symbol:
+            return False
+            
+        symbol_upper = symbol.upper().strip()
+        
+        # Check cache first
+        if symbol_upper in self._symbol_cache:
+            return True
+            
+        # Check database if not in cache
+        company = self.company_db.get_company_by_symbol(symbol_upper)
+        if company:
+            # Update cache
+            self._symbol_cache[symbol_upper] = company
+            return True
+            
+        return False
+            
     def _is_false_positive(self, text_lower: str) -> bool:
         """Check for common false positives in news text"""
-        # Common patterns that might slip through initial filters
-        false_positives = [
-            # Common words that might match stock symbols
-            r'\b(?:the|and|for|with|from|this|that|have|has|had|will|would)\b',
-            
-            # Common abbreviations that might match stock symbols
-            r'\b(?:it|its|me|my|we|us|our|you|your|they|them|their)\b',
-            
-            # Common words in financial news that aren't specific to India
-            r'\b(?:market|stock|stocks|share|shares|trading|investor|investors|price|prices|index|indices)\b',
-            
-            # Common verbs that might match stock symbols
-            r'\b(?:has|have|had|was|were|are|is|be|being|been|do|does|did|will|would|should|could|can|may|might|must)\b',
-            
-            # Common prepositions and articles
-            r'\b(?:in|on|at|by|for|of|to|with|about|as|into|like|through|after|over|between|out|against|during|before|above|below|from|up|down|in|out|on|off|over|under|again|further|then|once|here|there|when|where|why|how|all|any|both|each|few|more|most|other|some|such|no|nor|not|only|own|same|so|than|too|very|s|t|can|will|just|don|should|now|d|ll|m|o|re|ve|y|ain|aren|could|didn|doesn|hadn|hasn|haven|isn|ma|mightn|mustn|needn|shan|shouldn|wasn|weren|won|wouldn)\b'
+        # Common terms that might appear in non-relevant articles
+        false_positive_terms = [
+            'nse', 'bse', 'sensex', 'nifty', 'indian', 'india', 'mumbai', 'delhi', 'bengaluru',
+            'rupee', 'rs.', 'inr', '₹', 'stock exchange', 'sebi', 'rbi', 'bse sensex', 'nse nifty',
+            'market update', 'stock market', 'share market', 'trading', 'investing'
         ]
         
-        # If the text only contains common words, it's likely not relevant
-        common_word_ratio = sum(
-            bool(re.search(pattern, text_lower, re.IGNORECASE))
-            for pattern in false_positives
-        ) / max(1, len(text_lower.split()))
+        # Check if any false positive terms are in the text
+        return any(term in text_lower for term in false_positive_terms)
         
-        return common_word_ratio > 0.7  # If more than 70% of words are common, likely not relevant
+    def filter_indian_news_by_headline(self, articles: List[Dict]) -> List[Dict]:
+        """
+        Filter articles to include only those relevant to Indian markets.
+        
+        Args:
+            articles: List of article dictionaries with 'title', 'description', etc.
+            
+        Returns:
+            List of filtered articles relevant to Indian markets
+        """
+        if not articles:
+            return []
+            
+        filtered = []
+        for article in articles:
+            try:
+                title = str(article.get('title', '')).lower()
+                description = str(article.get('description', '')).lower()
+                content = f"{title} {description}"
+                
+                # Skip if empty content
+                if not content.strip():
+                    continue
+                    
+                # Check if the article is relevant to Indian markets
+                if self._is_relevant_news(content):
+                    filtered.append(article)
+                    
+            except Exception as e:
+                logger.warning(f"Error processing article for Indian relevance: {str(e)}")
+                continue
+                
+        logger.info(f"Filtered {len(filtered)} Indian-relevant articles from {len(articles)} total articles")
+        return filtered
     
     def fetch_news(self, force_refresh: bool = False) -> List[Dict]:
         """Fetch and filter news related to Indian stocks with caching."""
@@ -244,9 +452,19 @@ class NewsAnalyzer:
                         # Extract mentioned stocks (only those with length > 3 to avoid false positives)
                         mentioned_stocks = []
                         content_upper = content.upper()
+                        
+                        # Get all stocks mentioned in the content
                         for stock in self.indian_stocks:
                             if len(stock) > 3 and re.search(r'\b' + re.escape(stock) + r'\b', content_upper):
-                                mentioned_stocks.append(stock)
+                                # Get company info from database
+                                company_info = self.company_db.get_company_by_symbol(stock)
+                                if company_info:
+                                    mentioned_stocks.append({
+                                        'symbol': stock,
+                                        'name': company_info.get('name', 'N/A'),
+                                        'sector': company_info.get('sector', 'N/A'),
+                                        'industry': company_info.get('industry', 'N/A')
+                                    })
                         
                         # Skip if no stocks were mentioned (shouldn't happen due to _is_relevant_news check)
                         if not mentioned_stocks:
@@ -255,13 +473,20 @@ class NewsAnalyzer:
                         # Clean up the title (remove source names, etc.)
                         clean_title = re.sub(r'\s*-\s*\w+(\.\w+)*\s*$', '', title)
                         
+                        # Get unique stocks by symbol
+                        unique_stocks = {}
+                        for stock in mentioned_stocks:
+                            symbol = stock['symbol']
+                            if symbol not in unique_stocks:
+                                unique_stocks[symbol] = stock
+                        
                         articles.append({
                             'title': clean_title,
                             'description': description,
                             'url': entry.get('link', ''),
                             'publishedAt': entry.get('published', ''),
                             'source': source.split('/')[-1].split('.')[0],  # Just get the source name
-                            'stocks': mentioned_stocks[:5]  # Limit to top 5 mentioned stocks
+                            'stocks': list(unique_stocks.values())[:5]  # Limit to top 5 mentioned stocks
                         })
                         
                         # Break if we have enough articles
@@ -289,114 +514,122 @@ class NewsAnalyzer:
         logger.info(f"Fetched {len(articles)} relevant Indian market news articles")
         return articles
     
+    def _get_random_user_agent(self) -> str:
+        """Return a random user agent to avoid detection."""
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36'
+        ]
+        return random.choice(user_agents)
+
+    def _make_request_with_retry(self, url: str, max_retries: int = 3) -> Optional[Dict]:
+        """Make HTTP request with proper headers (no retries for 403)."""
+        headers = {
+            'User-Agent': self._get_random_user_agent(),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0',
+            'TE': 'Trailers'
+        }
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            return {'status': 'success', 'content': response.text}
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                logger.warning(f"Access denied (403) for {url}")
+                return {'status': 'error', 'error': "403 Forbidden - Access denied"}
+            else:
+                logger.error(f"HTTP error {e.response.status_code} for {url}: {str(e)}")
+                return {'status': 'error', 'error': f"HTTP {e.response.status_code}"}
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request failed for {url}: {str(e)}")
+            return {'status': 'error', 'error': str(e)}
+
     def fetch_all_news_articles(self) -> List[Dict]:
-        """Fetch all news articles from RSS feeds."""
-        try:
-            all_articles = []
-            
-            # Fetch from all RSS sources
-            for source in self.news_sources:
-                try:
-                    feed = feedparser.parse(source)
-                    for entry in feed.entries:  # Get all articles from each source
-                        article = {
-                            'title': entry.get('title', ''),
-                            'description': entry.get('summary', ''),
-                            'url': entry.get('link', ''),
-                            'publishedAt': entry.get('published', ''),
-                            'source': source,
-                            'full_content': ''
-                        }
-                        all_articles.append(article)
+        """Fetch all news articles from RSS feeds from the last 24 hours with enhanced error handling."""
+        all_articles = []
+        seen_articles = set()
+        time_24_hours_ago = time.time() - 86400  # 24 hours in seconds
+        
+        for source in self.news_sources:
+            try:
+                # Parse the RSS feed with a random user agent
+                feed = feedparser.parse(source, request_headers={'User-Agent': self._get_random_user_agent()})
+                
+                for entry in feed.entries:
+                    try:
+                        # Skip if we've already seen this article
+                        article_id = entry.get('id', entry.get('link', ''))
+                        if not article_id or article_id in seen_articles:
+                            continue
+                            
+                        # Get article details
+                        title = entry.get('title', 'No title')
+                        link = entry.get('link', '')
+                        description = entry.get('description', '')
+                        published_parsed = entry.get('published_parsed') or entry.get('updated_parsed')
                         
-                except Exception as e:
-                    logger.warning(f"Error fetching from {source}: {str(e)}")
-            
-            logger.info(f"Fetched {len(all_articles)} total articles from RSS feeds")
-            return all_articles
-            
-        except Exception as e:
-            logger.error(f"Error fetching news articles: {str(e)}")
-            return []
-    
-    def filter_indian_news_by_headline(self, articles: List[Dict]) -> List[Dict]:
-        """Filter articles by Indian stock market keywords in headlines and content."""
-        try:
-            # Get comprehensive NSE stock list for more specific filtering
-            nse_stocks = self.get_comprehensive_nse_stocks_list()
-            nse_stocks_set = set(nse_stocks)
-            
-            # Indian stock market specific keywords
-            indian_stock_keywords = [
-                'NSE', 'BSE', 'BOMBAY STOCK EXCHANGE', 'NATIONAL STOCK EXCHANGE',
-                'SENSEX', 'NIFTY', 'NIFTY 50', 'NIFTY NEXT 50',
-                'SEBI', 'RBI', 'RESERVE BANK', 'SECURITIES AND EXCHANGE BOARD',
-                'UNION BUDGET', 'FISCAL DEFICIT', 'GST', 'GOODS AND SERVICES TAX',
-                'FDI', 'FOREIGN DIRECT INVESTMENT', 'FII', 'FOREIGN INSTITUTIONAL INVESTMENT',
-                'IPO', 'INITIAL PUBLIC OFFERING', 'QIP', 'QUALIFIED INSTITUTIONAL PLACEMENT',
-                'MERGER', 'ACQUISITION', 'TAKEOVER', 'JOINT VENTURE',
-                'QUARTERLY RESULTS', 'ANNUAL RESULTS', 'EARNINGS', 'DIVIDEND', 'BONUS',
-                'STOCK SPLIT', 'RIGHTS ISSUE', 'BONUS SHARES'
-            ]
-            
-            # Major Indian company names and sectors
-            indian_companies = [
-                'RELIANCE', 'TATA', 'ADANI', 'HDFC', 'ICICI', 'SBI', 'INFOSYS', 'TCS', 'WIPRO', 'HCL',
-                'BHARTI', 'MARUTI', 'BAJAJ', 'MAHINDRA', 'HERO', 'EICHER', 'ASHOK LEYLAND', 'TVS',
-                'SUN PHARMA', 'DR REDDY', 'CIPLA', 'LUPIN', 'BIOCON', 'DIVIS LAB', 'AUROBINDO',
-                'ITC', 'HUL', 'NESTLE', 'BRITANNIA', 'DABUR', 'GODREJ', 'MARICO', 'COLPAL',
-                'ONGC', 'IOC', 'BPCL', 'HPCL', 'GAIL', 'COAL INDIA', 'NTPC', 'POWERGRID',
-                'TATA STEEL', 'JSW STEEL', 'HINDALCO', 'VEDANTA', 'SAIL', 'NMDC',
-                'LT', 'NCC', 'KEC', 'IRCON', 'RVNL', 'BEML', 'TITAGARH',
-                'BEL', 'HAL', 'BDL', 'MIDHANI', 'BHARAT FORGE',
-                'APOLLO HOSPITALS', 'FORTIS', 'MAX HEALTH', 'NARAYANA HRUDAYALAYA',
-                'DLF', 'GODREJ PROPERTIES', 'BRIGADE', 'SOBHA', 'PRESTIGE',
-                'ZEEL', 'SUN TV', 'NETWORK18', 'TV TODAY', 'JAGRAN',
-                'INDIGO', 'SPICEJET', 'JET AIRWAYS',
-                'BATA', 'TITAN', 'PC JEWELLER', 'KALYAN JEWELLERS',
-                'VOLTAS', 'BLUE STAR', 'WHIRLPOOL', 'CROMPTON', 'HAVELLS',
-                'ASIAN PAINTS', 'BERGER PAINTS', 'KANSAI NEROLAC', 'AKZO NOBEL',
-                'ULTRATECH', 'SHREE CEMENT', 'RAMCO CEMENT', 'HEIDELBERG',
-                'BAJAJ FINANCE', 'BAJAJ FINSERV', 'CHOLAMANDALAM', 'LIC HOUSING',
-                'MOTILAL OSWAL', 'ANGEL BROKING', 'ZERODHA', 'UPSTOX'
-            ]
-            
-            filtered_articles = []
-            
-            for article in articles:
-                title = article.get('title', '').upper()
-                description = article.get('description', '').upper()
-                content = f"{title} {description}"
-                
-                # Check for NSE stock symbols in title/description
-                has_nse_stock = any(stock in content for stock in nse_stocks_set)
-                
-                # Check for Indian stock market keywords
-                has_stock_keywords = any(keyword in content for keyword in indian_stock_keywords)
-                
-                # Check for major Indian companies
-                has_indian_company = any(company in content for company in indian_companies)
-                
-                # Must have at least one of these criteria
-                if has_nse_stock or has_stock_keywords or has_indian_company:
-                    article['is_india_related'] = True
-                    article['filter_reason'] = []
-                    if has_nse_stock:
-                        article['filter_reason'].append('NSE Stock')
-                    if has_stock_keywords:
-                        article['filter_reason'].append('Stock Keywords')
-                    if has_indian_company:
-                        article['filter_reason'].append('Indian Company')
+                        # Skip if no link or title
+                        if not link or not title:
+                            continue
+                            
+                        # Parse publication time
+                        published_time = time.mktime(published_parsed) if published_parsed else time.time()
+                        
+                        # Skip articles older than 24 hours
+                        if published_time < time_24_hours_ago:
+                            continue
+                        
+                        # Add to seen articles
+                        seen_articles.add(article_id)
+                        
+                        # Clean up text data
+                        if isinstance(description, dict):
+                            description = description.get('value', '')
+                        
+                        # Check if the article is relevant to Indian markets
+                        content = f"{title} {description}".lower()
+                        is_relevant = self._is_relevant_news(content)
+                        
+                        if is_relevant:
+                            all_articles.append({
+                                'title': str(title).strip(),
+                                'link': str(link).strip(),
+                                'description': str(description).strip() if description else '',
+                                'published': published_parsed,
+                                'source': source,
+                                'timestamp': published_time
+                            })
+                        
+                        # Limit to 100 articles to prevent excessive processing
+                        if len(all_articles) >= 100:
+                            break
+                            
+                    except Exception as e:
+                        logger.warning(f"Error processing article from {source}: {str(e)}")
+                        continue
+                        
+                # If we've reached the article limit, break the source loop
+                if len(all_articles) >= 100:
+                    break
                     
-                    filtered_articles.append(article)
-                    logger.debug(f"Indian stock article: {article.get('title', '')[:50]}... - {article['filter_reason']}")
-            
-            logger.info(f"Filtered {len(filtered_articles)} Indian stock-related articles from {len(articles)} total articles")
-            return filtered_articles
-            
-        except Exception as e:
-            logger.error(f"Error filtering Indian news: {str(e)}")
-            return articles
+            except Exception as e:
+                logger.error(f"Error fetching from {source}: {str(e)}")
+                continue
+        
+        # Sort articles by publication time (newest first)
+        all_articles.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+        
+        return all_articles
     
     def fetch_top_10_news_with_content(self) -> List[Dict]:
         """Fetch at least 10 Indian news articles with full content for Groq analysis."""
@@ -582,7 +815,19 @@ class NewsAnalyzer:
             return {'error': str(e)}
     
     def _fetch_article_content(self, url: str) -> str:
-        """Fetch full article content from URL with enhanced headers and error handling."""
+        """Fetch full article content from URL with enhanced headers and error handling.
+        
+        Args:
+            url: The URL to fetch content from
+            
+        Returns:
+            str: The fetched content or empty string if there was an error
+        """
+        # Validate URL
+        if not url or not isinstance(url, str) or not url.strip() or not url.startswith(('http://', 'https://')):
+            logger.warning(f"Invalid URL: '{url}' - No scheme supplied. Perhaps you meant https://?")
+            return ""
+            
         try:
             # Multiple user agents to rotate and avoid detection
             user_agents = [
@@ -649,13 +894,10 @@ class NewsAnalyzer:
                             session.headers.update(investing_headers)
                         response = session.get(url, timeout=20, allow_redirects=True)
                     
-                    # Handle 403 Forbidden specifically
+                    # Handle 403 Forbidden - no retries as it's unlikely to succeed
                     if response.status_code == 403:
-                        logger.warning(f"403 Forbidden when fetching {url} (attempt {attempt + 1}) - using description as fallback")
-                        if attempt == 0:
-                            continue  # Try second attempt
-                        else:
-                            return ""  # Return empty string, will use description as fallback
+                        logger.warning(f"403 Forbidden when fetching {url} - access denied, no retry")
+                        return ""
                     
                     # Handle other HTTP errors
                     if response.status_code >= 400:
@@ -664,6 +906,11 @@ class NewsAnalyzer:
                             continue  # Try second attempt
                         else:
                             return ""
+                            
+                    # Handle empty responses
+                    if not response.content:
+                        logger.warning(f"Empty response when fetching {url}")
+                        return ""
                     
                     # Success - parse content
                     response.raise_for_status()
@@ -707,31 +954,32 @@ class NewsAnalyzer:
                     
                     if len(content) > 50:  # Only return if we got meaningful content
                         logger.info(f"Successfully fetched content for {url} ({len(content)} characters)")
-                        return content
+                        return {'status': 'success', 'content': content}
                     else:
                         logger.warning(f"Minimal content fetched for {url} - using description as fallback")
-                        return ""
+                        return {'status': 'error', 'error': 'Minimal content'}
                         
                 except requests.exceptions.Timeout:
                     logger.warning(f"Timeout when fetching {url} (attempt {attempt + 1})")
                     if attempt == 0:
                         continue
                     else:
-                        return ""
+                        return {'status': 'error', 'error': 'Request timeout'}
+                        
                 except requests.exceptions.ConnectionError:
                     logger.warning(f"Connection error when fetching {url} (attempt {attempt + 1})")
                     if attempt == 0:
                         continue
                     else:
-                        return ""
+                        return {'status': 'error', 'error': 'Connection error'}
             
             # If we get here, all attempts failed
             logger.warning(f"All attempts failed for {url} - using description as fallback")
-            return ""
+            return {'status': 'error', 'error': 'All attempts failed'}
             
         except Exception as e:
             logger.warning(f"Unexpected error when fetching {url}: {str(e)}")
-            return ""
+            return {'status': 'error', 'error': str(e)}
     
     def analyze_news_sentiment(self, articles: List[Dict]) -> float:
         """Analyze sentiment of news articles."""

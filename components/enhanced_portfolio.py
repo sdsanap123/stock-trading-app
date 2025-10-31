@@ -192,8 +192,11 @@ class EnhancedPortfolio:
         symbol_or_company = str(symbol_or_company).strip()
         if not symbol_or_company:
             return None, None, None
+            
+        # Remove any existing .NS suffix to standardize
+        clean_input = symbol_or_company.upper().replace('.NS', '').strip()
         
-        # Specific symbol mappings
+        # Specific symbol mappings for common mismatches
         symbol_mappings = {
             'DEEPAK NITRITE': 'DEEPAKNTR',
             'DEEPAK NITRT': 'DEEPAKNTR',
@@ -201,41 +204,43 @@ class EnhancedPortfolio:
             'TCS LIMITED': 'TCS',
             'NIFTY BEES': 'NIFTYBEES',
             'NIFTYBEES ETF': 'NIFTYBEES',
+            'ESCORTS LTD.': 'ESCORTS',
+            'ESCORTS LTD': 'ESCORTS',
+            'ESCORT': 'ESCORTS',
+            'JK TYRE IND': 'JKTYRES',
+            'JK TYRE': 'JKTYRES',
+            'J K TYRE': 'JKTYRES',
+            'SANWAR AG OI (BSE INDONEXT)': 'SANWARIA',
+            'SANWAR AG': 'SANWARIA',
+            'YAARII DIGITAL LTD.': 'YAARII',
+            'YAARII DIGITAL': 'YAARII',
         }
         
         # Check if input matches any of our specific mappings
-        clean_input = symbol_or_company.upper()
         if clean_input in symbol_mappings:
-            symbol = symbol_mappings[clean_input] + '.NS'
-            try:
-                stock = yf.Ticker(symbol)
-                hist = stock.history(period='1d')
-                if not hist.empty:
-                    return float(hist['Close'].iloc[-1]), stock.info, symbol
-            except Exception:
-                pass  # Will try the normal lookup if this fails
+            symbol = symbol_mappings[clean_input]
+            return self._fetch_yfinance_data(symbol)
         
-        # Try to find the symbol in EQUITY_L.csv for other cases
-        equity_df = load_equity_data()
-        if not equity_df.empty:
-            # Check if input is a symbol (with or without .NS)
-            clean_input = symbol_or_company.upper().replace('.NS', '')
-            
-            # Look for exact symbol match
-            symbol_match = equity_df[equity_df['SYMBOL'].str.upper() == clean_input]
-            
-            # If no direct symbol match, try company name match
-            if symbol_match.empty:
-                # Look for company name match (case-insensitive)
-                name_matches = equity_df[
-                    equity_df['NAME OF COMPANY'].str.upper().str.contains(clean_input, case=False, na=False) |
-                    equity_df['NAME OF COMPANY'].str.upper().str.replace('LIMITED', '').str.strip().str.contains(clean_input, case=False, na=False)
-                ]
+        # Try to find the symbol in the database
+        try:
+            equity_df = load_equity_data()
+            if not equity_df.empty:
+                # Look for exact symbol match (case-insensitive)
+                symbol_match = equity_df[equity_df['SYMBOL'].str.upper() == clean_input]
                 
-                if not name_matches.empty:
-                    # Get the first match (can be improved with better matching logic)
-                    symbol = name_matches.iloc[0]['SYMBOL'] + '.NS'
-                else:
+                # If no direct symbol match, try company name match
+                if symbol_match.empty:
+                    # Look for company name match (case-insensitive, partial match)
+                    name_matches = equity_df[
+                        equity_df['NAME OF COMPANY'].str.upper().str.contains(clean_input, case=False, na=False) |
+                        equity_df['NAME OF COMPANY'].str.upper().str.replace('LIMITED', '').str.strip().str.contains(clean_input, case=False, na=False)
+                    ]
+                    
+                    if not name_matches.empty:
+                        # Get the first match with the closest name
+                        symbol = name_matches.iloc[0]['SYMBOL']
+                        return self._fetch_yfinance_data(symbol)
+                    
                     # Try fuzzy matching if no direct match found
                     from fuzzywuzzy import fuzz
                     
@@ -248,35 +253,45 @@ class EnhancedPortfolio:
                     )
                     
                     # Get best match
-                    best_match = companies.loc[companies['score'].idxmax()] if not companies.empty else None
-                    
-                    if best_match is not None and best_match['score'] > 70:  # Threshold for fuzzy match
-                        symbol = best_match['SYMBOL'] + '.NS'
-                    else:
-                        symbol = symbol_or_company  # Fall back to original input
-            else:
-                # Use the matched symbol with .NS suffix
-                symbol = symbol_match.iloc[0]['SYMBOL'] + '.NS'
-        else:
-            # If we can't load EQUITY_L.csv, use the input as is
-            symbol = symbol_or_company
+                    if not companies.empty:
+                        best_match = companies.loc[companies['score'].idxmax()]
+                        if best_match is not None and best_match['score'] > 70:  # Threshold for fuzzy match
+                            return self._fetch_yfinance_data(best_match['SYMBOL'])
+                else:
+                    # Found exact symbol match
+                    symbol = symbol_match.iloc[0]['SYMBOL']
+                    return self._fetch_yfinance_data(symbol)
+        except Exception as e:
+            logger.warning(f"Error looking up symbol in database: {str(e)}")
+            
+        # Last resort: try the input as-is with .NS suffix
+        return self._fetch_yfinance_data(clean_input)
         
-        # Ensure symbol has exchange suffix if not already present
-        if '.' not in symbol:
-            symbol = f"{symbol}.NS"  # Default to NSE
-        
-        # Now try to get data from yfinance
+    def _fetch_yfinance_data(self, symbol: str) -> tuple[Optional[float], Optional[dict], str]:
+        """Helper method to fetch data from yfinance with proper symbol formatting."""
+        # Ensure symbol has .NS suffix if not already present and not an index
+        if not any(ext in symbol.upper() for ext in ['.NS', '.BO', '.NSEI', '^', '=']):
+            symbol = f"{symbol}.NS"
+            
         try:
             stock = yf.Ticker(symbol)
             hist = stock.history(period='1d')
             
             if not hist.empty:
                 return float(hist['Close'].iloc[-1]), stock.info, symbol
-        
+                
+            # If no data, try with .BO (BSE) suffix
+            if symbol.endswith('.NS'):
+                return self._fetch_yfinance_data(symbol.replace('.NS', '.BO'))
+                
         except Exception as e:
             logger.warning(f"Error fetching data for {symbol}: {str(e)}")
             
-        return None, None, None
+            # Try with .BO (BSE) suffix if .NS failed
+            if symbol.endswith('.NS'):
+                return self._fetch_yfinance_data(symbol.replace('.NS', '.BO'))
+                
+        return None, None, symbol
 
     def _add_stock(self, symbol: str, quantity: float, buy_price: float, 
                   buy_date: Union[str, date], notes: str = "") -> bool:
@@ -526,12 +541,34 @@ class EnhancedPortfolio:
             
             st.markdown("---")
         
+        # Fetch latest prices for all stocks
+        with st.spinner("Fetching latest prices..."):
+            updated_portfolio = []
+            for stock in st.session_state.portfolio:
+                # Get the latest price
+                current_price, _, _ = self._get_stock_data(stock['symbol'])
+                
+                # Update the stock with latest price if available
+                if current_price is not None:
+                    stock['current_price'] = current_price
+                # Fallback to existing current_price or buy_price if fetch fails
+                elif 'current_price' not in stock:
+                    stock['current_price'] = stock['buy_price']
+                
+                # Add the stock to the updated portfolio
+                updated_portfolio.append(stock)
+        
+        # Update the session state with latest prices
+        st.session_state.portfolio = updated_portfolio
+        
         # Add rows with data and buttons
+        total_pnl = 0
         for i, stock in enumerate(st.session_state.portfolio):
             current_price = stock.get('current_price', stock['buy_price'])
-            pnl = (current_price - stock['buy_price']) * stock['quantity']
-            pnl_pct = ((current_price - stock['buy_price']) / stock['buy_price'] * 100) if stock['buy_price'] > 0 else 0
-            
+            pnl = stock.get('current_pnl', 0)
+            pnl_pct = stock.get('current_pnl_pct', 0)
+            total_pnl += pnl
+        
             # Determine P&L color
             pnl_color = "#4CAF50" if pnl >= 0 else "#f44336"
             pnl_display = f"<span style='color: {pnl_color}'>₹{abs(pnl):,.2f} ({pnl_pct:+.2f}%)</span>"
@@ -543,10 +580,10 @@ class EnhancedPortfolio:
                 # Stock data
                 cols[0].write(stock['symbol'])
                 cols[1].write(f"{stock['quantity']:.4f}")
-                cols[2].write(f"₹{stock['buy_price']:.2f}")
-                cols[3].write(f"₹{current_price:.2f}")
+                cols[2].write(f"₹{stock['buy_price']:,.2f}")
+                cols[3].write(f"₹{current_price:,.2f}")
                 cols[4].markdown(pnl_display, unsafe_allow_html=True)
-                cols[5].write(f"₹{stock['quantity'] * current_price:,.2f}")
+                cols[5].write(f"₹{(stock['quantity'] * current_price):,.2f}")
                 
                 # Action buttons
                 btn_col1, btn_col2 = cols[6].columns(2)
@@ -568,22 +605,14 @@ class EnhancedPortfolio:
                         st.session_state["show_delete_confirm"] = True
                         st.rerun()
                 
-                st.markdown("---")
-        
-        # Display edit form if in edit mode
-        if st.session_state.get("show_edit_form", False) and 'editing_stock_index' in st.session_state:
-            self._render_edit_form()
-        
-        # Display delete confirmation if needed
-        if st.session_state.get("show_delete_confirm", False) and "delete_index" in st.session_state:
-            delete_index = st.session_state["delete_index"]
-            if 0 <= delete_index < len(st.session_state.portfolio):
-                stock = st.session_state.portfolio[delete_index]
-                self._render_delete_confirmation(
-                    stock_symbol=stock['symbol'],
-                    stock=stock,
-                    index=delete_index
-                )
+                # Show delete confirmation if this is the stock being deleted
+                if st.session_state.get("show_delete_confirm", False) and \
+                   st.session_state.get("delete_index") == i:
+                    self._render_delete_confirmation(
+                        stock_symbol=stock['symbol'],
+                        stock=stock,
+                        index=i
+                    )
     
     def _clean_numeric_value(self, value):
         """Remove currency symbols and convert to float."""
@@ -980,14 +1009,150 @@ class EnhancedPortfolio:
 
     def _render_portfolio_tab(self) -> None:
         """Render the main portfolio tab."""
+        # Custom CSS for better tab styling
+        st.markdown("""
+        <style>
+            /* Main tab styling */
+            .stTabs [data-baseweb="tab"] {
+                height: 50px;
+                padding: 10px 20px;
+                margin: 0 5px;
+                background-color: #f0f2f6;
+                border-radius: 8px 8px 0 0;
+                border: 1px solid #dcdcdc;
+                color: #4a4a4a;
+                font-weight: 600;
+                transition: all 0.3s ease;
+            }
+            
+            /* Hover state */
+            .stTabs [data-baseweb="tab"]:hover {
+                background-color: #e1e4eb;
+                color: #2c3e50;
+            }
+            
+            /* Active tab */
+            .stTabs [aria-selected="true"] {
+                background-color: #4a90e2 !important;
+                color: white !important;
+                border-bottom: 3px solid #2c3e50;
+            }
+            
+            /* Container for tabs */
+            .stTabs [role="tablist"] {
+                gap: 5px;
+                padding: 0 10px;
+            }
+            
+            /* Better contrast for metrics */
+            .stMetric {
+                background-color: #f8f9fa !important;
+                color: #2c3e50 !important;
+                padding: 15px;
+                border-radius: 10px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            
+            /* Ensure text is visible in metric cards */
+            .stMetric > div > div {
+                color: #2c3e50 !important;
+            }
+            
+            .stMetric > div > div[data-testid="stMetricValue"] > div {
+                color: #2c3e50 !important;
+                font-weight: 600;
+                font-size: 1.2rem;
+            }
+            
+            .stMetric > div > div[data-testid="stMetricLabel"] > div {
+                color: #4a4a4a !important;
+                opacity: 0.9;
+            }
+            
+            /* Make sure delta indicators are visible */
+            .stMetric > div > div[data-testid="stMetricDelta"] > div {
+                font-weight: 500;
+            }
+            
+            /* Improve button visibility */
+            .stButton>button {
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: 500;
+            }
+            
+            /* Table styling */
+            .stDataFrame {
+                border-radius: 8px;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            }
+            
+            /* Section headers */
+            h1, h2, h3 {
+                color: #2c3e50;
+            }
+            
+            /* Status messages */
+            .stAlert {
+                border-radius: 8px;
+            }
+        </style>
+        """, unsafe_allow_html=True)
+        
         st.header("📊 My Portfolio")
         
+        # Show edit form if in edit mode
+        if st.session_state.get('show_edit_form', False):
+            self._render_edit_form()
+            return
+            
+        # Show delete confirmation if needed
+        if st.session_state.get('show_delete_confirm', False) and 'delete_index' in st.session_state:
+            delete_index = st.session_state['delete_index']
+            if 0 <= delete_index < len(st.session_state.portfolio):
+                stock = st.session_state.portfolio[delete_index]
+                self._render_delete_confirmation(
+                    stock_symbol=stock['symbol'],
+                    stock=stock,
+                    index=delete_index
+                )
+                return
+        
         if st.session_state.portfolio:
+            # Ensure we have the latest prices
+            updated_portfolio = []
+            for stock in st.session_state.portfolio:
+                try:
+                    # Get the latest price
+                    current_price, _, _ = self._get_stock_data(stock['symbol'])
+                    if current_price is not None:
+                        stock['current_price'] = current_price
+                    # Fallback to existing current_price or buy_price if fetch fails
+                    elif 'current_price' not in stock:
+                        stock['current_price'] = stock['buy_price']
+                except Exception as e:
+                    logger.warning(f"Failed to update price for {stock.get('symbol', 'unknown')}: {str(e)}")
+                    stock['current_price'] = stock.get('current_price', stock['buy_price'])
+                updated_portfolio.append(stock)
+            
+            # Update the session state with latest prices
+            st.session_state.portfolio = updated_portfolio
+            
             # Calculate portfolio metrics
             total_investment = sum(stock['quantity'] * stock['buy_price'] for stock in st.session_state.portfolio)
-            current_value = sum(stock['quantity'] * stock.get('current_price', stock['buy_price']) 
-                              for stock in st.session_state.portfolio)
-            total_pnl = current_value - total_investment
+            current_value = 0
+            total_pnl = 0
+            
+            # Calculate individual stock P&L and update current value
+            for stock in st.session_state.portfolio:
+                current_price = stock.get('current_price', stock['buy_price'])
+                stock_pnl = (current_price - stock['buy_price']) * stock['quantity']
+                stock['current_pnl'] = stock_pnl
+                stock['current_pnl_pct'] = ((current_price - stock['buy_price']) / stock['buy_price'] * 100) if stock['buy_price'] > 0 else 0
+                current_value += stock['quantity'] * current_price
+                total_pnl += stock_pnl
+            
+            # Calculate total P&L percentage
             total_pnl_pct = (total_pnl / total_investment * 100) if total_investment > 0 else 0
             
             # Display summary metrics
@@ -1004,25 +1169,52 @@ class EnhancedPortfolio:
                     delta_color="normal" if total_pnl >= 0 else "inverse"
                 )
             
-            # Update prices button
-            if st.button("🔄 Update All Prices"):
-                with st.spinner("Updating prices..."):
-                    for stock in st.session_state.portfolio:
-                        try:
-                            ticker = yf.Ticker(stock['symbol'])
-                            stock['current_price'] = ticker.history(period='1d')['Close'].iloc[-1]
-                            stock['last_updated'] = datetime.now().isoformat()
-                        except Exception as e:
-                            st.warning(f"Failed to update price for {stock.get('symbol', 'unknown')}: {str(e)}")
-                            continue
-                    self._save_portfolio()
+            # Action buttons
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🔄 Update All Prices"):
+                    with st.spinner("Updating prices..."):
+                        for stock in st.session_state.portfolio:
+                            try:
+                                ticker = yf.Ticker(stock['symbol'])
+                                stock['current_price'] = ticker.history(period='1d')['Close'].iloc[-1]
+                                stock['last_updated'] = datetime.now().isoformat()
+                            except Exception as e:
+                                st.warning(f"Failed to update price for {stock.get('symbol', 'unknown')}: {str(e)}")
+                                continue
+                        self._save_portfolio()
+                        st.rerun()
+            
+            with col2:
+                if st.button("🗑️ Delete Portfolio", type="secondary", help="Delete all stocks from your portfolio"):
+                    st.session_state['show_delete_all_confirm'] = True
                     st.rerun()
+            
+            # Delete all confirmation dialog
+            if st.session_state.get('show_delete_all_confirm', False):
+                st.warning("⚠️ Are you sure you want to delete your entire portfolio? This action cannot be undone!")
+                confirm_col1, confirm_col2 = st.columns(2)
+                
+                with confirm_col1:
+                    if st.button("✅ Yes, delete everything", type="primary"):
+                        st.session_state.portfolio = []
+                        self._save_portfolio()
+                        st.session_state['show_delete_all_confirm'] = False
+                        st.rerun()
+                
+                with confirm_col2:
+                    if st.button("❌ Cancel"):
+                        st.session_state['show_delete_all_confirm'] = False
+                        st.rerun()
+                
+                st.markdown("---")  # Add a separator
             
             # Portfolio table
             st.subheader("Your Holdings")
             self._display_portfolio_table()
             
-            # Handle actions
+            # Handle analysis actions
             if 'selected_action' in st.session_state and st.session_state.selected_action:
                 action_parts = st.session_state.selected_action.split('_')
                 if len(action_parts) == 3 and action_parts[0] == 'analyze':

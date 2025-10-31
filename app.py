@@ -894,45 +894,91 @@ class StreamlitTradingApp:
                 st.rerun()
     
     def news_analysis_tab(self):
-        """News Analysis tab."""
-        st.header("📰 News Analysis")
+        """News Analysis tab with company database integration."""
+        st.header("📰 News Analysis & Company Lookup")
         
-        col1, col2, col3 = st.columns([2, 1, 1])
+        # Create tabs for different functionalities
+        tab1, tab2 = st.tabs(["📰 News Analysis", "🏢 Company Lookup"])
         
-        with col1:
-            if st.button("📰 Fetch Latest News", type="primary", key="fetch_news_btn"):
-                self.fetch_news()
-        
-        with col2:
-            if st.button("🔍 Analyze Sentiment", key="analyze_sentiment_btn"):
-                self.analyze_sentiment()
-        
-        # News is automatically saved when fetched
-        
-        # Display news articles in rows
-        if st.session_state.news_articles:
-            st.subheader(f"📰 Latest News ({len(st.session_state.news_articles)} articles)")
+        with tab1:
+            col1, col2, col3 = st.columns([2, 1, 1])
             
-            # Header row
-            col1, col2, col3, col4, col5 = st.columns([3, 1.5, 1, 1, 0.8])
             with col1:
-                st.markdown("**Headline**")
+                if st.button("📰 Fetch Latest News", type="primary", key="fetch_news_btn"):
+                    self.fetch_news()
+            
             with col2:
-                st.markdown("**Source**")
-            with col3:
-                st.markdown("**Published**")
-            with col4:
-                st.markdown("**Sentiment**")
-            with col5:
-                st.markdown("**Details**")
+                if st.button("🔍 Analyze Sentiment", key="analyze_sentiment_btn"):
+                    self.analyze_sentiment()
             
-            st.markdown("---")
+            # News is automatically saved when fetched
             
-            # Display each article in a row
-            for i, article in enumerate(st.session_state.news_articles[:10]):
-                ExpandableUI.display_news_row(article, i)
-        else:
-            st.info("No news articles available. Click 'Fetch Latest News' to get started.")
+            # Display news articles in rows
+            if st.session_state.news_articles:
+                st.subheader(f"📰 Latest News ({len(st.session_state.news_articles)} articles)")
+                
+                # Header row
+                col1, col2, col3, col4, col5 = st.columns([3, 1.5, 1, 1, 0.8])
+                with col1:
+                    st.markdown("**Headline**")
+                with col2:
+                    st.markdown("**Source**")
+                with col3:
+                    st.markdown("**Published**")
+                with col4:
+                    st.markdown("**Sentiment**")
+                with col5:
+                    st.markdown("**Details**")
+                
+                st.markdown("---")
+                
+                # Display each article in a row
+                for i, article in enumerate(st.session_state.news_articles[:10]):
+                    ExpandableUI.display_news_row(article, i)
+            else:
+                st.info("No news articles available. Click 'Fetch Latest News' to get started.")
+        
+        with tab2:
+            st.subheader("🔍 Company Lookup")
+            
+            # Search for companies
+            search_term = st.text_input("Search by company name or symbol")
+            
+            if search_term:
+                # Search for companies matching the search term
+                results = self.news_analyzer.search_companies(search_term, limit=10)
+                
+                if results:
+                    st.success(f"Found {len(results)} matching companies")
+                    
+                    # Display results in a table
+                    for company in results:
+                        with st.expander(f"{company['symbol']} - {company['name']}"):
+                            col1, col2 = st.columns([1, 3])
+                            with col1:
+                                st.metric("Symbol", company['symbol'])
+                                st.metric("Industry", company.get('industry', 'N/A'))
+                            with col2:
+                                st.metric("Company Name", company['name'])
+                                st.metric("Sector", company.get('sector', 'N/A'))
+                else:
+                    st.warning("No companies found matching your search")
+            
+            # Stock symbol validation
+            st.subheader("🔎 Validate Stock Symbol")
+            symbol_to_check = st.text_input("Enter a stock symbol to validate")
+            
+            if symbol_to_check:
+                is_valid = self.news_analyzer.is_valid_stock_symbol(symbol_to_check)
+                if is_valid:
+                    st.success(f"✅ {symbol_to_check} is a valid stock symbol")
+                    
+                    # Show company details if valid
+                    company_info = self.news_analyzer.get_company_info(symbol_to_check)
+                    if company_info:
+                        st.json(company_info)
+                else:
+                    st.error(f"❌ {symbol_to_check} is not a valid stock symbol")
     
     def groq_news_analysis_tab(self):
         """Groq News Analysis tab."""
