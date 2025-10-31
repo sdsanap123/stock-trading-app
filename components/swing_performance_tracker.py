@@ -21,7 +21,6 @@ class SwingPerformanceTracker:
         """Initialize performance tracker."""
         self.working_capital = working_capital
         self.performance_data = []
-        self.archived_strategies = []
         self.adaptive_parameters = {
             'stop_loss_percentage': 0.03,  # 3% default (realistic for 7 days)
             'take_profit_percentage': 0.02,  # 2% default (realistic for 7 days)
@@ -33,9 +32,7 @@ class SwingPerformanceTracker:
             'last_updated': datetime.now().isoformat()
         }
         self.performance_file = "saved_data/swing_performance.json"
-        self.archives_file = "saved_data/swing_archives.json"
         self._load_performance_data()
-        self._load_archived_strategies()
         
         logger.info(f"Swing Performance Tracker initialized with working capital: ₹{working_capital:,.0f}")
     
@@ -66,149 +63,6 @@ class SwingPerformanceTracker:
             logger.info("Performance data saved successfully")
         except Exception as e:
             logger.error(f"Error saving performance data: {str(e)}")
-    
-    def _load_archived_strategies(self):
-        """Load archived strategies from file."""
-        try:
-            if os.path.exists(self.archives_file):
-                with open(self.archives_file, 'r') as f:
-                    data = json.load(f)
-                    self.archived_strategies = data.get('archived_strategies', [])
-                logger.info(f"Loaded {len(self.archived_strategies)} archived strategies")
-        except Exception as e:
-            logger.error(f"Error loading archived strategies: {str(e)}")
-            self.archived_strategies = []
-    
-    def _save_archived_strategies(self):
-        """Save archived strategies to file."""
-        try:
-            os.makedirs(os.path.dirname(self.archives_file), exist_ok=True)
-            data = {
-                'archived_strategies': self.archived_strategies,
-                'last_updated': datetime.now().isoformat()
-            }
-            with open(self.archives_file, 'w') as f:
-                json.dump(data, f, indent=2)
-            logger.info("Archived strategies saved successfully")
-        except Exception as e:
-            logger.error(f"Error saving archived strategies: {str(e)}")
-            
-    def archive_completed_strategies(self, strategies: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
-        """
-        Move strategies that are older than 7 days to the archive.
-        
-        Args:
-            strategies: List of current strategies
-            
-        Returns:
-            Tuple of (updated_strategies, archived_strategies)
-        """
-        current_date = datetime.now()
-        updated_strategies = []
-        newly_archived = []
-        
-        for strategy in strategies:
-            entry_date = datetime.fromisoformat(strategy.get('entry_date', ''))
-            days_since_entry = (current_date - entry_date).days
-            
-            if days_since_entry >= 7 and strategy.get('status') != 'ARCHIVED':
-                # Generate performance report before archiving
-                performance = self._analyze_completed_strategy(strategy)
-                if performance:
-                    strategy['performance_report'] = performance
-                    strategy['archived_date'] = current_date.isoformat()
-                    strategy['status'] = 'ARCHIVED'
-                    self.archived_strategies.append(strategy)
-                    newly_archived.append(strategy)
-                    logger.info(f"Archived strategy for {strategy.get('symbol')} with {performance.get('actual_return_percent', 0):.2f}% return")
-            else:
-                updated_strategies.append(strategy)
-        
-        if newly_archived:
-            self._save_archived_strategies()
-            
-        return updated_strategies, newly_archived
-    
-    def get_archived_strategies(self, limit: int = 20) -> List[Dict]:
-        """
-        Get archived strategies, sorted by most recent first.
-        
-        Args:
-            limit: Maximum number of strategies to return
-            
-        Returns:
-            List of archived strategies with performance reports
-        """
-        # Sort by archived_date descending
-        sorted_archives = sorted(
-            self.archived_strategies,
-            key=lambda x: x.get('archived_date', ''),
-            reverse=True
-        )
-        return sorted_archives[:limit]
-    
-    def generate_performance_report(self, strategy: Dict) -> Dict:
-        """
-        Generate a detailed performance report for a strategy.
-        
-        Args:
-            strategy: The strategy to analyze
-            
-        Returns:
-            Dictionary containing performance metrics and analysis
-        """
-        if 'performance_report' in strategy:
-            return strategy['performance_report']
-            
-        report = self._analyze_completed_strategy(strategy)
-        if not report:
-            report = {
-                'status': 'No performance data available',
-                'analysis_date': datetime.now().isoformat()
-            }
-            
-        # Add additional analysis
-        report['analysis'] = self._generate_performance_analysis(report)
-        return report
-        
-    def _generate_performance_analysis(self, performance: Dict) -> str:
-        """Generate human-readable analysis of performance."""
-        analysis = []
-        
-        # Basic performance metrics
-        actual_return = performance.get('actual_return_percent', 0)
-        expected_return = performance.get('expected_return_percent', 0)
-        
-        if actual_return > 0:
-            analysis.append(f"✅ The strategy generated a positive return of {actual_return:.2f}%")
-        else:
-            analysis.append(f"⚠️ The strategy resulted in a loss of {abs(actual_return):.2f}%")
-            
-        # Compare with expected return
-        if expected_return and abs(actual_return - expected_return) > 2:  # More than 2% difference
-            if actual_return > expected_return:
-                analysis.append(f"📈 Outperformed expectations by {actual_return - expected_return:.2f}%")
-            else:
-                analysis.append(f"📉 Underperformed expectations by {expected_return - actual_return:.2f}%")
-                
-        # Risk analysis
-        max_drawdown = performance.get('max_drawdown', 0)
-        if max_drawdown > 0.05:  # 5% max drawdown
-            analysis.append(f"⚠️ High drawdown detected: {max_drawdown*100:.1f}% (above 5% threshold)")
-            
-        # Win/loss analysis
-        win_rate = performance.get('win_rate', 0)
-        if win_rate < 0.5:  # 50% win rate
-            analysis.append(f"⚠️ Low win rate: {win_rate*100:.1f}% (below 50% threshold)")
-            
-        # Suggestion for improvement
-        if actual_return < 0:
-            analysis.append("💡 Consider adjusting stop-loss or take-profit levels for better risk management.")
-            
-        if not analysis:
-            analysis.append("No significant performance issues detected.")
-            
-        return "\n\n".join(analysis)
     
     def analyze_swing_performance(self, swing_strategies: List[Dict]) -> Dict:
         """Analyze performance of swing strategies after 7 days."""

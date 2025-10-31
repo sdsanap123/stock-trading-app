@@ -57,11 +57,10 @@ warnings.filterwarnings('ignore')
 from components.data_persistence import DataPersistenceManager
 from components.technical_analyzer import TechnicalAnalyzer
 from components.fundamental_analyzer import FundamentalAnalyzer
-from components.enhanced_portfolio import EnhancedPortfolio
-from components.gemini_analyzer import GeminiAIAnalyzer
-from components.swing_performance_tracker import SwingPerformanceTracker
+from components.news_analyzer import NewsAnalyzer
 from components.ai_engine import AIRecommendationEngine
 from components.groq_analyzer import GroqNewsAnalyzer
+from components.gemini_analyzer import GeminiAIAnalyzer
 from components.expandable_ui import ExpandableUI
 from utils.stock_utils import get_stock_data, find_stock_symbol
 from components.watchlist_manager import WatchlistManager
@@ -72,6 +71,7 @@ from components.swing_strategy import SwingTradingStrategy
 from components.email_notifications import EmailNotificationManager, AlertType, AlertPriority
 from components.price_monitor import PriceMonitor
 from components.notification_settings import NotificationSettingsManager, NotificationChannel
+from components.data_persistence import DataPersistenceManager
 from components.expandable_ui import ExpandableUI
 from components.scheduled_analysis import ScheduledAnalysis
 from components.swing_performance_tracker import SwingPerformanceTracker
@@ -220,11 +220,7 @@ class StreamlitTradingApp:
     
     def initialize_session_state(self):
         """Initialize Streamlit session state."""
-        # Initialize learning_available in session state
-        if 'learning_available' not in st.session_state:
-            st.session_state.learning_available = False
-            
-        # Initialize the data persistence
+        # First, initialize the data persistence
         if 'data_persistence' not in st.session_state:
             st.session_state.data_persistence = DataPersistenceManager()
         
@@ -315,9 +311,8 @@ class StreamlitTradingApp:
             self.fundamental_analyzer = FundamentalAnalyzer()
             self.news_analyzer = NewsAnalyzer()
             self.groq_analyzer = GroqNewsAnalyzer()
-            self.portfolio_analyzer = EnhancedPortfolio()
-            self.data_persistence = DataPersistenceManager()
-            self.performance_tracker = SwingPerformanceTracker()
+            self.gemini_analyzer = GeminiAIAnalyzer()
+            self.watchlist_manager = WatchlistManager()
             
             # Set fundamental analyzer in AI engine
             self.ai_engine.set_fundamental_analyzer(self.fundamental_analyzer)
@@ -365,7 +360,6 @@ class StreamlitTradingApp:
             
             # Load and set Gemini API key
             gemini_key = self.load_saved_api_key('gemini')
-            self.gemini_analyzer = GeminiAIAnalyzer()
             if gemini_key:
                 self.gemini_analyzer.api_key = gemini_key
                 self.gemini_analyzer.initialized = True
@@ -1279,241 +1273,173 @@ class StreamlitTradingApp:
         except Exception as e:
             st.error(f"Error displaying swing plan: {str(e)}")
     
-    def _display_swing_strategy_metrics(self, strategies: List[Dict]):
-        """Display metrics for swing strategies."""
-        if not strategies:
-            st.info("No active swing strategies found.")
-            return
-            
-        col1, col2, col3, col4 = st.columns(4)
+    def swing_trading_tab(self):
+        """Swing Trading Plans tab."""
+        st.header("📈 7-Day Swing Trading Plans")
+        
+        col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            st.metric("Total Strategies", len(strategies))
+            if st.button("🔄 Refresh Strategies", type="primary", key="refresh_strategies_btn"):
+                if st.session_state.get('recommendations'):
+                    st.rerun()
+                else:
+                    st.warning("No recommendations to refresh. Run market analysis first.")
         
         with col2:
-            high_confidence = len([s for s in strategies if s.get('confidence', 0) >= 80])
-            st.metric("High Confidence", high_confidence)
+            if st.button("📊 Analyze Performance", type="secondary", key="analyze_swing_performance_btn"):
+                self.analyze_swing_performance()
         
         with col3:
-            avg_risk_reward = sum(s.get('risk_reward_ratio', 0) for s in strategies) / len(strategies) if strategies else 0
-            st.metric("Avg Risk-Reward", f"{avg_risk_reward:.2f}:1")
+            if st.button("📅 View All Dates", key="view_all_swing"):
+                st.session_state.show_all_swing_dates = not st.session_state.get('show_all_swing_dates', False)
         
-        with col4:
-            # Calculate average days to expiry
-            current_date = datetime.now()
-            total_days = 0
-            valid_strategies = 0
-            for strategy in strategies:
-                try:
-                    exit_date = datetime.fromisoformat(strategy.get('expected_exit_date', '').replace('Z', '+00:00'))
-                    days_left = (exit_date - current_date).days
-                    if days_left >= 0:  # Only count future dates
-                        total_days += days_left
-                        valid_strategies += 1
-                except (ValueError, TypeError):
-                    continue
-            
-            avg_days_left = total_days / valid_strategies if valid_strategies > 0 else 0
-            st.metric("Avg Days to Expiry", f"{avg_days_left:.1f}")
-    
-    def _display_archived_strategies(self):
-        """Display archived strategies in the archive tab."""
-        st.subheader("🗄️ Archived Strategies")
-        
-        # Get archived strategies
-        archived_strategies = self.performance_tracker.get_archived_strategies()
-        
-        if not archived_strategies:
-            st.info("No archived strategies found.")
+        # Toggle between today's strategies and all dates view
+        if st.session_state.get('show_all_swing_dates', False):
+            self.display_saved_swing_strategies()
             return
         
-        # Add filters
-        col1, col2 = st.columns(2)
-        with col1:
-            filter_symbol = st.text_input("🔍 Filter by Symbol", "", key="archive_filter_symbol")
-        with col2:
-            filter_status = st.selectbox(
-                "Status",
-                ["All", "Profitable", "Loss"],
-                key="archive_filter_status"
-            )
+        # Display current adaptive parameters
+        self.display_current_adaptive_parameters()
         
-        # Apply filters
-        filtered_strategies = []
-        for strategy in archived_strategies:
-            # Filter by symbol
-            if filter_symbol and filter_symbol.lower() not in strategy.get('symbol', '').lower():
-                continue
-                
-            # Filter by status
-            performance = self.performance_tracker.generate_performance_report(strategy)
-            actual_return = performance.get('actual_return_percent', 0)
-            
-            if filter_status == "Profitable" and actual_return <= 0:
-                continue
-            if filter_status == "Loss" and actual_return >= 0:
-                continue
-                
-            filtered_strategies.append((strategy, performance))
+        # Get today's date in YYYY-MM-DD format
+        today = datetime.now().strftime("%Y-%m-%d")
         
-        if not filtered_strategies:
-            st.warning("No strategies match the current filters.")
-            return
+        # Get all swing strategies for today
+        swing_strategies = []
+        seen_symbols = set()
         
-        # Display strategies
-        for strategy, performance in filtered_strategies:
-            with st.expander(f"{strategy.get('symbol', 'Unknown')} - {strategy.get('entry_date', '')}"):
-                self._display_archived_strategy(strategy, performance)
-    
-    def swing_trading_tab(self):
-        """Swing Trading Plans tab with archive functionality."""
-        # Create tabs for active and archived strategies
-        active_tab, archive_tab = st.tabs(["📈 Active Strategies", "🗄️ Archive"])
-        
-        with active_tab:
-            st.subheader("📈 Active Swing Trading Plans (7-Day Hold)")
-            
-            # Action buttons
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                if st.button("🔄 Refresh Strategies", type="primary", key="refresh_strategies_btn"):
-                    if st.session_state.get('recommendations'):
-                        st.rerun()
-                    else:
-                        st.warning("No recommendations to refresh. Run market analysis first.")
-            
-            with col2:
-                if st.button("📊 Analyze Performance", type="secondary", key="analyze_swing_performance_btn"):
-                    with st.spinner("Analyzing swing trading performance..."):
-                        self.analyze_swing_performance()
-            
-            # Display current adaptive parameters
-            self.display_current_adaptive_parameters()
-            
-            # Check for strategies that need to be archived
-            if 'swing_strategies' in st.session_state and st.session_state.swing_strategies:
-                updated_strategies, archived = self.performance_tracker.archive_completed_strategies(
-                    st.session_state.swing_strategies
-                )
-                if archived:
-                    st.session_state.swing_strategies = updated_strategies
-                    st.success(f"Archived {len(archived)} completed strategies")
-            
-            # Load and display active strategies
-            swing_strategies = []
-            seen_symbols = set()
-            
-            # 1. Get strategies from current recommendations
-            if 'recommendations' in st.session_state and st.session_state.recommendations:
-                for rec in st.session_state.recommendations:
-                    if 'swing_plan' in rec:
-                        swing_plan = rec['swing_plan'].copy()  # Create a copy to avoid modifying the original
-                        symbol = rec.get('symbol')
-                        
+        # 1. Get strategies from current recommendations
+        if st.session_state.get('recommendations'):
+            for rec in st.session_state.recommendations:
+                if 'swing_plan' in rec:
+                    symbol = rec.get('symbol')
+                    if symbol and symbol not in seen_symbols:
+                        swing_plan = rec['swing_plan']
                         # Add basic info if missing
-                        swing_plan['symbol'] = symbol or swing_plan.get('symbol')
+                        if 'symbol' not in swing_plan:
+                            swing_plan['symbol'] = symbol
                         if 'company_name' not in swing_plan and 'company_name' in rec:
                             swing_plan['company_name'] = rec['company_name']
                         if 'current_price' not in swing_plan and 'current_price' in rec:
                             swing_plan['current_price'] = rec['current_price']
                         
-                        if swing_plan['symbol'] not in seen_symbols:  # Avoid duplicates
-                            swing_strategies.append(swing_plan)
-                            seen_symbols.add(swing_plan['symbol'])
-            
-            # 2. Get any additional saved strategies not in recommendations
-            today = datetime.now().strftime('%Y-%m-%d')
-            saved_strategies = st.session_state.data_persistence.get_swing_strategies_by_date(today)
-            if saved_strategies:
-                for strategy in saved_strategies:
-                    symbol = strategy.get('symbol')
-                    if symbol and symbol not in seen_symbols:
-                        swing_strategies.append(strategy)
+                        swing_strategies.append(swing_plan)
                         seen_symbols.add(symbol)
-            
-            # Display metrics and strategies
-            self._display_swing_strategy_metrics(swing_strategies)
-            
-            # Display each strategy
-            for strategy in swing_strategies:
-                self.display_swing_plan(strategy)
         
-        # Archive tab
-        with archive_tab:
-            self._display_archived_strategies()
+        # 2. Get any additional saved strategies for today
+        saved_strategies = st.session_state.data_persistence.get_swing_strategies_by_date(today)
+        if saved_strategies:
+            for strategy in saved_strategies:
+                symbol = strategy.get('symbol')
+                if symbol and symbol not in seen_symbols:
+                    swing_strategies.append(strategy)
+                    seen_symbols.add(symbol)
+        
+        if swing_strategies:
+            # Display summary metrics
+            col1, col2, col3, col4 = st.columns(4)
             
-            if swing_strategies:  # This is the missing if statement
-                # Header row with consistent alignment
-                col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 0.8, 1, 0.8, 0.8])
-                with col1:
-                    st.markdown("**Stock**")
-                with col2:
-                    st.markdown("**Entry (₹)**")
-                with col3:
-                    st.markdown("**Take Profit (₹)**")
-                with col4:
-                    st.markdown("**Stop Loss (₹)**")
-                with col5:
-                    st.markdown("**Days**")
-                with col6:
-                    st.markdown("**Status**")
-                with col7:
-                    st.markdown("**Details**")
-                with col8:
-                    st.markdown("**Delete**")
-                
-                st.markdown("<hr style='margin: 0.5rem 0;'/>", unsafe_allow_html=True)
-                
-                # Display swing strategies in rows
+            with col1:
+                st.metric("Total Strategies", len(swing_strategies))
+            
+            with col2:
+                high_confidence = len([s for s in swing_strategies if s.get('confidence', 0) >= 80])
+                st.metric("High Confidence", high_confidence)
+            
+            with col3:
+                avg_risk_reward = sum(s.get('risk_reward_ratio', 0) for s in swing_strategies) / len(swing_strategies) if swing_strategies else 0
+                st.metric("Avg Risk-Reward", f"{avg_risk_reward:.2f}:1")
+            
+            with col4:
+                # Calculate days to expiry
                 current_date = datetime.now()
-                for i, strategy in enumerate(swing_strategies):
-                    # Get the values with proper fallbacks
-                    symbol = strategy.get('symbol', 'UNKNOWN')
-                    company_name = strategy.get('company_name', '')
-                    
-                    # Calculate days remaining (7-day validity from creation)
-                    created_at = strategy.get('created_at', '')
+                total_days = 0
+                for strategy in swing_strategies:
                     try:
-                        if created_at:
-                            created_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                            days_remaining = 7 - (current_date - created_date).days
-                            days_remaining = max(0, min(7, days_remaining))  # Clamp between 0 and 7
-                        else:
-                            days_remaining = 7  # Default to 7 days if no creation date
-                    except Exception as e:
-                        logger.warning(f"Error calculating days remaining for {symbol}: {str(e)}")
-                        days_remaining = 7
-                    
-                    current_price = strategy.get('current_price', 0)
-                    
-                    # Get entry/exit levels with proper fallbacks
-                    entry_price = strategy.get('entry_price', current_price)
-                    take_profit = strategy.get('take_profit', 0)
-                    stop_loss = strategy.get('stop_loss', 0)
-                    
-                    # If we have a 'levels' dictionary, use those values
-                    if 'levels' in strategy and isinstance(strategy['levels'], dict):
-                        entry_price = strategy['levels'].get('entry_price', entry_price)
-                        take_profit = strategy['levels'].get('take_profit', take_profit)
-                        stop_loss = strategy['levels'].get('stop_loss', stop_loss)
-                    
-                    # Ensure we have valid values
-                    entry_price = entry_price or current_price
-                    take_profit = take_profit or (entry_price * 1.02)  # Default 2% take profit
-                    stop_loss = stop_loss or (entry_price * 0.98)  # Default 2% stop loss
-                    
-                    # Update the strategy dictionary with the calculated values
-                    strategy.update({
-                        'entry_price': entry_price,
-                        'take_profit': take_profit,
-                        'stop_loss': stop_loss,
-                        'current_price': current_price
-                    })
-                    
-                    # Display the row
-                    ExpandableUI.display_swing_strategy_row(strategy, i)
-            else:
-                st.info("No swing trading plans available. Generate BUY recommendations first.")
+                        exit_date = datetime.fromisoformat(strategy.get('expected_exit_date', '').replace('Z', '+00:00'))
+                        days_remaining = (exit_date - current_date).days
+                        total_days += max(0, days_remaining)
+                    except:
+                        total_days += 7  # Default 7 days
+                avg_days = total_days / len(swing_strategies) if swing_strategies else 0
+                st.metric("Avg Days Left", f"{avg_days:.0f}")
+            
+            st.info(f"Showing {len(swing_strategies)} strategies for {today}. Click 'View All Dates' to see strategies from other dates.")
+            
+            st.markdown("---")
+            
+            # Header row with consistent alignment
+            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 0.8, 1, 0.8, 0.8])
+            with col1:
+                st.markdown("**Stock**")
+            with col2:
+                st.markdown("**Entry (₹)**")
+            with col3:
+                st.markdown("**Take Profit (₹)**")
+            with col4:
+                st.markdown("**Stop Loss (₹)**")
+            with col5:
+                st.markdown("**Days**")
+            with col6:
+                st.markdown("**Status**")
+            with col7:
+                st.markdown("**Details**")
+            with col8:
+                st.markdown("**Delete**")
+            
+            st.markdown("<hr style='margin: 0.5rem 0;'/>", unsafe_allow_html=True)
+            
+            # Display swing strategies in rows
+            current_date = datetime.now()
+            for i, strategy in enumerate(swing_strategies):
+                # Get the values with proper fallbacks
+                symbol = strategy.get('symbol', 'UNKNOWN')
+                company_name = strategy.get('company_name', '')
+                
+                # Calculate days remaining (7-day validity from creation)
+                created_at = strategy.get('created_at', '')
+                try:
+                    if created_at:
+                        created_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        days_remaining = 7 - (current_date - created_date).days
+                        days_remaining = max(0, min(7, days_remaining))  # Clamp between 0 and 7
+                    else:
+                        days_remaining = 7  # Default to 7 days if no creation date
+                except Exception as e:
+                    logger.warning(f"Error calculating days remaining for {symbol}: {str(e)}")
+                    days_remaining = 7
+                
+                current_price = strategy.get('current_price', 0)
+                
+                # Get entry/exit levels with proper fallbacks
+                entry_price = strategy.get('entry_price', current_price)
+                take_profit = strategy.get('take_profit', 0)
+                stop_loss = strategy.get('stop_loss', 0)
+                
+                # If we have a 'levels' dictionary, use those values
+                if 'levels' in strategy and isinstance(strategy['levels'], dict):
+                    entry_price = strategy['levels'].get('entry_price', entry_price)
+                    take_profit = strategy['levels'].get('take_profit', take_profit)
+                    stop_loss = strategy['levels'].get('stop_loss', stop_loss)
+                
+                # Ensure we have valid values
+                entry_price = entry_price or current_price
+                take_profit = take_profit or (entry_price * 1.02)  # Default 2% take profit
+                stop_loss = stop_loss or (entry_price * 0.98)  # Default 2% stop loss
+                
+                # Update the strategy dictionary with the calculated values
+                strategy.update({
+                    'entry_price': entry_price,
+                    'take_profit': take_profit,
+                    'stop_loss': stop_loss,
+                    'current_price': current_price
+                })
+                
+                # Display the row
+                ExpandableUI.display_swing_strategy_row(strategy, i)
+        else:
+            st.info("No swing trading plans available. Generate BUY recommendations first.")
     
     def watchlist_tab(self):
         """Watchlist tab."""
