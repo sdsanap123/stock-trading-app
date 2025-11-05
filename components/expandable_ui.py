@@ -974,94 +974,188 @@ class ExpandableUI:
             # Create main row - more compact with headers
             if index == 0:
                 # Add header row with adjusted column widths to match data rows
-                header_cols = st.columns([1.2, 0.8, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.6, 0.5])
-                with header_cols[0]: st.markdown("**Stock**")
-                with header_cols[1]: st.markdown("<div style='text-align: center;'>**Date**</div>", unsafe_allow_html=True)
-                with header_cols[2]: st.markdown("<div style='text-align: right;'>**Current**</div>", unsafe_allow_html=True)
-                with header_cols[3]: st.markdown("<div style='text-align: right;'>**Entry**</div>", unsafe_allow_html=True)
-                with header_cols[4]: st.markdown("<div style='text-align: right;'>**S/L**</div>", unsafe_allow_html=True)
-                with header_cols[5]: st.markdown("<div style='text-align: right;'>**P&L**</div>", unsafe_allow_html=True)
-                with header_cols[6]: st.markdown("<div style='text-align: right;'>**Target**</div>", unsafe_allow_html=True)
-                with header_cols[7]: st.markdown("<div style='text-align: center;'>**Status**</div>", unsafe_allow_html=True)
-                with header_cols[8]: st.markdown("**Actions**")
-                with header_cols[9]: st.markdown("**X**")
+                header_cols = st.columns([0.5, 1.2, 0.8, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.6, 0.5])
+                with header_cols[0]: st.markdown("**Select**")
+                with header_cols[1]: st.markdown("**Stock**")
+                with header_cols[2]: st.markdown("<div style='text-align: center;'>**Date**</div>", unsafe_allow_html=True)
+                with header_cols[3]: st.markdown("<div style='text-align: right;'>**Current**</div>", unsafe_allow_html=True)
+                with header_cols[4]: st.markdown("<div style='text-align: right;'>**Entry**</div>", unsafe_allow_html=True)
+                with header_cols[5]: st.markdown("<div style='text-align: right;'>**S/L**</div>", unsafe_allow_html=True)
+                with header_cols[6]: st.markdown("<div style='text-align: right;'>**P&L**</div>", unsafe_allow_html=True)
+                with header_cols[7]: st.markdown("<div style='text-align: right;'>**Target**</div>", unsafe_allow_html=True)
+                with header_cols[8]: st.markdown("<div style='text-align: center;'>**Status**</div>", unsafe_allow_html=True)
+                with header_cols[9]: st.markdown("**Actions**")
+                with header_cols[10]: st.markdown("**X**")
                 st.markdown("---")
             
             # Data row with consistent column widths
-            col1, col2, col3, col4, col5, col6, col7, col8, col9, col10 = st.columns([1.2, 0.8, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.6, 0.5])
+            cols = st.columns([0.5, 1.2, 0.8, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.6, 0.5])
             
-            with col1:
-                st.markdown(f'<div class="compact-row">', unsafe_allow_html=True)
-                st.markdown(f'<div style="font-weight: bold;">{symbol}</div>', unsafe_allow_html=True)
-                if company_name:
-                    st.markdown(f'<div style="font-size: 0.8em; opacity: 0.8;">{company_name}</div>', unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+            # Debug: Print item to check its contents
+            print(f"Watchlist item {index}:", item)
+            
+            # Checkbox for selection
+            with cols[0]:
+                is_checked = st.checkbox(
+                    "", 
+                    key=f"select_{symbol}_{index}",
+                    value=item.get('_is_selected', False),
+                    label_visibility="collapsed"
+                )
+                # Store the checkbox state in the item for parent component to access
+                item['_checkbox_state'] = is_checked
                 
-            with col2:
+            # Stock symbol and name - make more robust
+            with cols[1]:
+                try:
+                    st.markdown(f'<div class="compact-row">', unsafe_allow_html=True)
+                    st.markdown(f'<div style="font-weight: bold;">{symbol or "N/A"}</div>', unsafe_allow_html=True)
+                    if company_name and company_name != 'N/A':
+                        st.markdown(f'<div style="font-size: 0.8em; opacity: 0.8;">{company_name}</div>', unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"Error displaying stock info: {str(e)}")
+                    st.json(item)  # Debug: Show the raw item data
+            
+            # Date added
+            with cols[2]:
+                st.markdown(f'<div style="text-align: center;">{formatted_date}</div>', unsafe_allow_html=True)
+                
+            # Current price
+            with cols[3]:
+                st.markdown(f'<div style="text-align: right;">₹{current_price:,.2f}</div>', unsafe_allow_html=True)
+                
+            # Entry price
+            with cols[4]:
+                st.markdown(f'<div style="text-align: right;">₹{entry_price:,.2f}</div>', unsafe_allow_html=True)
+                
+            # Stop loss
+            with cols[5]:
+                st.markdown(f'<div style="text-align: right;">₹{stop_loss:,.2f}</div>', unsafe_allow_html=True)
+                
+            # P&L
+            with cols[6]:
+                pnl_color = "green" if pnl >= 0 else "red"
+                pnl_text = f"<div style='text-align: right; color: {pnl_color};'>{pnl:+,.2f}%"
+                if pnl_amount != 0:  # Only show P&L amount if it's not zero
+                    pnl_text += f"<br><span style='font-size: 0.8em;'>(₹{pnl_amount:+,.2f})</span>"
+                pnl_text += "</div>"
+                st.markdown(pnl_text, unsafe_allow_html=True)
+                
+            # Target price
+            with cols[7]:
+                st.markdown(f'<div style="text-align: right;">₹{target_price:,.2f}</div>', unsafe_allow_html=True)
+                
+            # Status
+            with cols[8]:
+                status_color = "green" if status == 'ACTIVE' else "red"
+                st.markdown(f'<div style="text-align: center; color: {status_color};">{status}</div>', unsafe_allow_html=True)
+                
+            # Action buttons
+            with cols[9]:
+                if show_actions:
+                    if st.button("📊", key=f"view_{expander_key}"):
+                        st.session_state.view_watchlist_item = symbol
+                        st.rerun()
+            
+            # Delete button
+            with cols[10]:
+                if show_actions:
+                    if st.button("🗑️", key=f"delete_{expander_key}"):
+                        st.session_state.delete_watchlist_item = symbol
+                        st.rerun()
+            
+            # Stock symbol and name - make more robust
+            with cols[1]:
+                try:
+                    st.markdown(f'<div class="compact-row">', unsafe_allow_html=True)
+                    st.markdown(f'<div style="font-weight: bold;">{symbol or "N/A"}</div>', unsafe_allow_html=True)
+                    if company_name and company_name != 'N/A':
+                        st.markdown(f'<div style="font-size: 0.8em; opacity: 0.8;">{company_name}</div>', unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"Error displaying stock info: {str(e)}")
+                    st.json(item)  # Debug: Show the raw item data
+            
+            # Date
+            with cols[2]:
                 st.markdown(f'<div class="compact-row">{formatted_date}</div>', unsafe_allow_html=True)
             
-            with col3:
+            # Current price
+            with cols[3]:
                 st.markdown(f'<div style="text-align: right;">₹{current_price:,.2f}</div>', unsafe_allow_html=True)
             
-            with col4:
+            # Entry price
+            with cols[4]:
                 st.markdown(f'<div style="text-align: right;">₹{entry_price:,.2f}</div>', unsafe_allow_html=True)
-            
-            with col5:
+                
+            # Stop loss
+            with cols[5]:
                 st.markdown(f'<div style="text-align: right;">₹{stop_loss:,.2f}</div>', unsafe_allow_html=True)
             
-            with col6:
-                # P&L with color and right alignment
-                if pnl > 0:
-                    st.markdown(f'<div style="text-align: right;"><span style="color: #28a745;">+{pnl:.1f}%<br>+₹{pnl_amount:,.2f}</span></div>', unsafe_allow_html=True)
-                elif pnl < 0:
-                    st.markdown(f'<div style="text-align: right;"><span style="color: #dc3545;">{pnl:.1f}%<br>₹{pnl_amount:,.2f}</span></div>', unsafe_allow_html=True)
+            # P&L
+            with cols[6]:
+                # P&L is now in cols[6]
+                if pnl >= 0:
+                    st.markdown(f'<div style="text-align: right; color: #28a745;">+{pnl:.1f}%</div>', unsafe_allow_html=True)
                 else:
-                    st.markdown('<div style="text-align: right;">0.0%<br>₹0.00</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="text-align: right; color: #dc3545;">{pnl:.1f}%</div>', unsafe_allow_html=True)
             
-            with col7:
+            # Target price
+            with cols[7]:
                 st.markdown(f'<div style="text-align: right;">₹{target_price:,.2f}</div>', unsafe_allow_html=True)
             
-            with col8:
-                # Status with color and centered
-                if status == 'ACTIVE':
-                    st.markdown('<div style="text-align: center; color: #28a745;">🟢</div>', unsafe_allow_html=True)
-                elif status == 'TARGET_HIT':
-                    st.markdown('<div style="text-align: center; color: #ffc107;">🎯</div>', unsafe_allow_html=True)
-                elif status == 'STOP_LOSS_HIT':
-                    st.markdown('<div style="text-align: center; color: #dc3545;">🛑</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div style="text-align: center;">📊</div>', unsafe_allow_html=True)
+            # Status
+            with cols[8]:
+                status_color = "#28a745" if status == "ACTIVE" else "#6c757d"
+                st.markdown(f'<div style="text-align: center; color: {status_color};">{status}</div>', unsafe_allow_html=True)
             
-            with col9:
-                # Create a unique key for the expander
-                expander_key = f"watchlist_expander_{index}"
+            # Actions
+            with cols[9]:
+                # Add action buttons
+                action_cols = st.columns(2)
+                with action_cols[0]:
+                    # View details button
+                    if st.button("👁️", key=f"view_{symbol}_{index}"):
+                        # Store the symbol to view details for
+                        st.session_state.view_watchlist_item = symbol
                 
-                # Create a button to toggle the expander
-                if st.button("🔍", key=f"btn_{expander_key}", 
-                           help="View details"):
-                    # Toggle the expander state in session state
-                    if f"expanded_{expander_key}" in st.session_state:
-                        st.session_state[f"expanded_{expander_key}"] = not st.session_state[f"expanded_{expander_key}"]
-                    else:
-                        st.session_state[f"expanded_{expander_key}"] = True
+            # Delete button
+            with cols[10]:
+                if st.button("❌", key=f"delete_{symbol}_{index}"):
+                    # Store the symbol to delete
+                    st.session_state.delete_watchlist_item = symbol
             
-            with col10:
-                if st.button("X", key=f"delete_{index}", help="Remove from watchlist"):
-                    st.session_state[f"delete_from_watchlist_{symbol}"] = True
-                    st.rerun()
+            # Create a unique key for the expander
+            expander_key = f"watchlist_expander_{index}"
             
-            # Show the expander if it's toggled on
-            if st.session_state.get(f"expanded_{expander_key}", False):
-                # Use container to create a modal-like appearance
-                with st.container():
-                    # Create a header with a close button
-                    col1, col2 = st.columns([0.9, 0.1])
+            # Add expander for details if needed
+            try:
+                expander_title = f"Details for {symbol}" if symbol else "Stock Details"
+                with st.expander(expander_title, expanded=False):
+                    # Create columns for the details view
+                    col1, col2 = st.columns(2)
+                    
                     with col1:
-                        st.markdown(f"### {symbol} - Watchlist Details")
+                        st.markdown("### Position Details")
+                        st.write(f"**Entry Price:** ₹{entry_price:,.2f}")
+                        st.write(f"**Current Price:** ₹{current_price:,.2f}")
+                        st.write(f"**P&L:** {pnl:+.2f}% (₹{pnl_amount:+,.2f})")
+                        
                     with col2:
-                        if st.button("✕", key=f"close_{expander_key}"):
-                            st.session_state[f"expanded_{expander_key}"] = False
-                            st.rerun()
+                        st.markdown("### Risk Management")
+                        st.write(f"**Stop Loss:** ₹{stop_loss:,.2f}")
+                        st.write(f"**Target Price:** ₹{target_price:,.2f}")
+                        st.write(f"**Status:** {status}")
+                    
+                    # Add a view details button that opens a modal with more information
+                    if st.button("🔍 View Detailed Analysis", key=f"view_details_{expander_key}"):
+                        st.session_state.view_watchlist_item = symbol
+                        
+                    # Add a close button
+                    if st.button("✕ Close Details", key=f"close_{expander_key}"):
+                        st.session_state[f"expanded_{expander_key}"] = False
+                        st.rerun()
                     
                     # Add a divider
                     st.markdown("---")
@@ -1069,11 +1163,15 @@ class ExpandableUI:
                     # Display the detailed content
                     ExpandableUI._display_watchlist_details(item)
                     
-                    # Add some spacing and a close button at the bottom
-                    st.markdown("")
-                    if st.button("Close Details", key=f"close_btn_{expander_key}"):
-                        st.session_state[f"expanded_{expander_key}"] = False
-                        st.rerun()
+            except Exception as e:
+                st.error(f"Error creating expander: {str(e)}")
+                st.json(item)  # Debug: Show the raw item data
+                
+                # Add some spacing and a close button at the bottom
+                st.markdown("")
+                if st.button("Close Details", key=f"close_btn_{expander_key}"):
+                    st.session_state[f"expanded_{expander_key}"] = False
+                    st.rerun()
             
             return False
             
@@ -1192,68 +1290,29 @@ class ExpandableUI:
     
     @staticmethod
     def _display_watchlist_details(item: Dict):
-        """Display detailed watchlist information."""
+        """Display detailed watchlist information using the same format as recommendation details."""
         try:
-            col1, col2 = st.columns(2)
+            # Format the item to match the recommendation details structure
+            rec = {
+                'symbol': item.get('symbol', 'N/A'),
+                'current_price': item.get('current_price', 0),
+                'target_price': item.get('target_price', 0),
+                'stop_loss': item.get('stop_loss', 0),
+                'confidence': item.get('confidence', 0),
+                'recommendation': item.get('recommendation', 'HOLD'),
+                'reasoning': item.get('reasoning', ''),
+                'technical_data': item.get('technical_data', {}),
+                'fundamental_data': item.get('fundamental_data', {}),
+                'groq_analysis': item.get('groq_analysis', {}),
+                'gemini_analysis': item.get('gemini_analysis', {})
+            }
             
-            with col1:
-                st.markdown("**📊 Position Details**")
-                st.write(f"• **Symbol:** {item.get('symbol', 'N/A')}")
-                st.write(f"• **Entry Price:** ₹{item.get('entry_price', 0):.2f}")
-                st.write(f"• **Current Price:** ₹{item.get('current_price', 0):.2f}")
-                st.write(f"• **Target Price:** ₹{item.get('target_price', 0):.2f}")
-                st.write(f"• **Stop Loss:** ₹{item.get('stop_loss', 0):.2f}")
-                
-                # Calculate distances to targets
-                current_price = item.get('current_price', 0)
-                target_price = item.get('target_price', 0)
-                stop_loss = item.get('stop_loss', 0)
-                
-                if current_price > 0:
-                    if target_price > 0:
-                        target_distance = ((target_price - current_price) / current_price) * 100
-                        st.write(f"• **Distance to Target:** {target_distance:.1f}%")
-                    
-                    if stop_loss > 0:
-                        stop_distance = ((current_price - stop_loss) / current_price) * 100
-                        st.write(f"• **Distance to Stop Loss:** {stop_distance:.1f}%")
+            # Display the same detailed view as recommendations
+            ExpandableUI._display_recommendation_details(rec)
             
-            with col2:
-                st.markdown("**📈 Performance Metrics**")
-                
-                # P&L calculations
-                entry_price = item.get('entry_price', 0)
-                current_price = item.get('current_price', 0)
-                
-                if entry_price > 0:
-                    pnl_percent = ((current_price - entry_price) / entry_price) * 100
-                    pnl_amount = current_price - entry_price
-                    
-                    st.write(f"• **P&L Percentage:** {pnl_percent:.2f}%")
-                    st.write(f"• **P&L Amount:** ₹{pnl_amount:.2f}")
-                    
-                    # Risk-Reward
-                    target_price = item.get('target_price', 0)
-                    stop_loss = item.get('stop_loss', 0)
-                    
-                    if target_price > 0 and stop_loss > 0:
-                        potential_profit = target_price - entry_price
-                        potential_loss = entry_price - stop_loss
-                        if potential_loss > 0:
-                            risk_reward = potential_profit / potential_loss
-                            st.write(f"• **Risk-Reward Ratio:** {risk_reward:.2f}:1")
-                
-                st.write(f"• **Status:** {item.get('status', 'N/A')}")
-                st.write(f"• **Confidence:** {item.get('confidence', 0):.1f}%")
-            
-            # Notes
-            notes = item.get('notes', '')
-            if notes:
-                st.markdown("**📝 Notes**")
-                st.write(notes)
-            
-            # Action buttons
-            st.markdown("**⚡ Actions**")
+            # Add watchlist-specific actions
+            st.markdown("---")
+            st.markdown("**⚡ Watchlist Actions**")
             action_col1, action_col2, action_col3 = st.columns(3)
             
             with action_col1:
@@ -1265,12 +1324,13 @@ class ExpandableUI:
                     st.session_state[f"edit_notes_{item.get('symbol')}"] = True
             
             with action_col3:
-                if st.button(f"🗑️ Delete", key=f"remove_{item.get('symbol')}_watchlist", type="primary"):
+                if st.button(f"🗑️ Remove from Watchlist", key=f"remove_{item.get('symbol')}_watchlist", type="primary"):
                     st.session_state[f"delete_from_watchlist_{item.get('symbol')}"] = True
                     st.rerun()
             
         except Exception as e:
             logger.error(f"Error displaying watchlist details: {str(e)}")
+            st.error(f"Error displaying watchlist details: {str(e)}")
     
     @staticmethod
     def display_swing_strategy_row(strategy: Dict, index: int, show_actions: bool = True) -> bool:
@@ -1545,39 +1605,37 @@ class ExpandableUI:
     
     @staticmethod
     def _display_swing_strategy_details(strategy: Dict):
-        """Display detailed swing strategy information."""
+        """Display detailed swing strategy information using the same format as recommendation details."""
         try:
+            # Format the strategy to match the recommendation details structure
+            rec = {
+                'symbol': strategy.get('symbol', 'N/A'),
+                'current_price': strategy.get('current_price', strategy.get('entry_price', 0)),
+                'target_price': strategy.get('take_profit', 0),
+                'stop_loss': strategy.get('stop_loss', 0),
+                'confidence': strategy.get('confidence', 0),
+                'recommendation': strategy.get('recommendation', 'HOLD'),
+                'reasoning': strategy.get('reasoning', ''),
+                'technical_data': strategy.get('technical_data', {}),
+                'fundamental_data': strategy.get('fundamental_data', {}),
+                'groq_analysis': strategy.get('groq_analysis', {}),
+                'gemini_analysis': strategy.get('gemini_analysis', {})
+            }
+            
+            # Display the same detailed view as recommendations
+            ExpandableUI._display_recommendation_details(rec)
+            
+            # Add swing strategy specific information
+            st.markdown("---")
+            st.markdown("**📅 Strategy Timeline**")
+            
             col1, col2 = st.columns(2)
-            
             with col1:
-                st.markdown("**📊 Strategy Overview**")
-                st.write(f"• **Symbol:** {strategy.get('symbol', 'N/A')}")
-                st.write(f"• **Strategy Name:** {strategy.get('strategy_name', 'N/A')}")
-                st.write(f"• **Entry Price:** ₹{strategy.get('entry_price', 0):.2f}")
-                st.write(f"• **Take Profit:** ₹{strategy.get('take_profit', 0):.2f}")
-                st.write(f"• **Stop Loss:** ₹{strategy.get('stop_loss', 0):.2f}")
-                st.write(f"• **Holding Period:** {strategy.get('holding_period_days', 7)} days")
-            
-            with col2:
-                st.markdown("**💰 Position Details**")
-                st.write(f"• **Position Size:** {strategy.get('position_size', 0)} shares")
-                st.write(f"• **Investment Amount:** ₹{strategy.get('investment_amount', 0):,.0f}")
-                st.write(f"• **Risk Amount:** ₹{strategy.get('risk_amount', 0):,.0f}")
-                st.write(f"• **Risk-Reward Ratio:** {strategy.get('risk_reward_ratio', 0):.2f}:1")
-                st.write(f"• **Confidence:** {strategy.get('confidence', 0):.1f}%")
-                st.write(f"• **Status:** {strategy.get('status', 'N/A')}")
-            
-            # Timeline
-            st.markdown("**📅 Timeline**")
-            timeline_col1, timeline_col2 = st.columns(2)
-            
-            with timeline_col1:
                 st.write(f"• **Entry Date:** {strategy.get('entry_date', 'N/A')[:10]}")
                 st.write(f"• **Created:** {strategy.get('created_at', 'N/A')[:19]}")
             
-            with timeline_col2:
+            with col2:
                 st.write(f"• **Expected Exit:** {strategy.get('expected_exit_date', 'N/A')[:10]}")
-                
                 # Calculate days remaining
                 try:
                     exit_date = datetime.fromisoformat(strategy.get('expected_exit_date', '').replace('Z', '+00:00'))
@@ -1585,9 +1643,9 @@ class ExpandableUI:
                     if days_remaining > 0:
                         st.write(f"• **Days Remaining:** {days_remaining}")
                     else:
-                        st.write(f"• **Status:** Expired")
+                        st.write("• **Status:** Expired")
                 except:
-                    st.write(f"• **Days Remaining:** N/A")
+                    st.write("• **Days Remaining:** N/A")
             
             # Strategy Rules
             st.markdown("**📋 Strategy Rules**")
@@ -1598,20 +1656,21 @@ class ExpandableUI:
             st.write("• Do not average down if trade goes against you")
             
             # Action buttons
-            st.markdown("**⚡ Actions**")
+            st.markdown("**⚡ Swing Strategy Actions**")
             action_col1, action_col2, action_col3 = st.columns(3)
             
             with action_col1:
                 if st.button(f"📊 Update Status", key=f"update_swing_{strategy.get('symbol')}"):
-                    st.info("Status update functionality will be implemented")
+                    st.session_state[f"update_swing_status_{strategy.get('symbol')}"] = True
             
             with action_col2:
                 if st.button(f"✏️ Edit Strategy", key=f"edit_swing_{strategy.get('symbol')}"):
-                    st.info("Edit functionality will be implemented")
+                    st.session_state[f"edit_swing_{strategy.get('symbol')}"] = True
             
             with action_col3:
-                if st.button(f"🗑️ Remove Strategy", key=f"remove_swing_{strategy.get('symbol')}"):
-                    st.info("Remove functionality will be implemented")
+                if st.button(f"🗑️ Remove Strategy", key=f"remove_swing_{strategy.get('symbol')}", type="primary"):
+                    st.session_state[f"delete_swing_{strategy.get('symbol')}"] = True
+                    st.rerun()
             
         except Exception as e:
             logger.error(f"Error displaying swing strategy details: {str(e)}")
