@@ -61,7 +61,7 @@ from components.news_analyzer import NewsAnalyzer
 from components.ai_engine import AIRecommendationEngine
 from components.groq_analyzer import GroqNewsAnalyzer
 from components.gemini_analyzer import GeminiAIAnalyzer
-from components import ExpandableUI
+from components.expandable_ui import ExpandableUI
 from utils.stock_utils import get_stock_data, find_stock_symbol
 from components.watchlist_manager import WatchlistManager
 from components.recommendation_learning import RecommendationTracker
@@ -72,6 +72,7 @@ from components.email_notifications import EmailNotificationManager, AlertType, 
 from components.price_monitor import PriceMonitor
 from components.notification_settings import NotificationSettingsManager, NotificationChannel
 from components.data_persistence import DataPersistenceManager
+from components.expandable_ui import ExpandableUI
 from components.scheduled_analysis import ScheduledAnalysis
 from components.swing_performance_tracker import SwingPerformanceTracker
 
@@ -96,53 +97,11 @@ st.markdown("""
         -webkit-text-fill-color: transparent;
     }
     
-    /* Metric cards styling */
-    .stMetric, .stMetric .st-emotion-cache-1xarl3l, .stMetric .st-emotion-cache-1xarl3l p {
-        color: #212529 !important;
-    }
-    
-    .stMetric .st-emotion-cache-1xarl3l {
-        font-size: 1.5rem !important;
-        font-weight: 700 !important;
-    }
-    
-    .stMetric .st-emotion-cache-1xarl3l p {
-        margin: 0 !important;
-    }
-    
-    .stMetric .st-emotion-cache-1xarl3l div {
-        color: #6c757d !important;
-        font-size: 0.9rem !important;
-        font-weight: 400 !important;
-    }
-    
-    .stMetric {
-        background-color: #f8f9fa !important;
-        border-radius: 0.5rem !important;
-        padding: 1rem !important;
-        border-left: 4px solid #2e8b57 !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
-        margin-bottom: 1rem !important;
-    }
-    
     .metric-card {
-        background-color: #f8f9fa !important;
-        color: #212529 !important;
-        padding: 1rem !important;
-        border-radius: 0.5rem !important;
-        border-left: 4px solid #2e8b57 !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
-        margin-bottom: 1rem !important;
-    }
-    
-    .metric-card h3, .metric-card h4 {
-        color: #2e8b57 !important;
-        font-size: 1rem !important;
-        margin-bottom: 0.5rem !important;
-    }
-    
-    .metric-card p, .metric-card div, .metric-card span {
-        color: #212529 !important;
+        background-color: #1e1e1e;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #2e8b57;
     }
     
     .sentiment-positive {
@@ -280,8 +239,7 @@ class StreamlitTradingApp:
             'last_analysis_time': None,
             'show_saved_recommendations': False,
             'saved_groq_key': self.load_saved_api_key('groq'),
-            'saved_gemini_key': self.load_saved_api_key('gemini'),
-            'selected_watchlist_items': []
+            'saved_gemini_key': self.load_saved_api_key('gemini')
         }
         
         # Set default values if not already set
@@ -1545,34 +1503,19 @@ class StreamlitTradingApp:
         # Check for delete actions from watchlist details
         for key in list(st.session_state.keys()):
             if key.startswith('delete_from_watchlist_'):
-                if key == 'delete_from_watchlist_multiple':
-                    # Handle multiple delete
-                    symbols_to_delete = st.session_state.get('selected_watchlist_items', [])
-                    if symbols_to_delete:
-                        st.session_state.watchlist = [
-                            item for item in st.session_state.watchlist 
-                            if item.get('symbol') not in symbols_to_delete
-                        ]
-                        # Auto-save watchlist
-                        self._auto_save_watchlist()
-                        st.success(f"✅ Deleted {len(symbols_to_delete)} items from watchlist!")
-                        st.session_state.selected_watchlist_items = []
-                        st.rerun()
-                else:
-                    # Handle single delete
-                    symbol_to_delete = key.replace('delete_from_watchlist_', '')
-                    st.session_state.watchlist = [
-                        item for item in st.session_state.watchlist 
-                        if item.get('symbol') != symbol_to_delete
-                    ]
-                    # Auto-save watchlist
-                    self._auto_save_watchlist()
-                    st.success(f"✅ Deleted {symbol_to_delete} from watchlist!")
+                symbol_to_delete = key.replace('delete_from_watchlist_', '')
+                # Remove the stock from watchlist
+                st.session_state.watchlist = [
+                    item for item in st.session_state.watchlist 
+                    if item.get('symbol') != symbol_to_delete
+                ]
+                # Auto-save watchlist
+                self._auto_save_watchlist()
                 # Clear the session state flag
                 del st.session_state[key]
+                st.success(f"✅ Deleted {symbol_to_delete} from watchlist!")
                 st.rerun()
         
-        # Action buttons row
         col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
         
         with col1:
@@ -1583,6 +1526,8 @@ class StreamlitTradingApp:
             if st.button("🧠 Analyze Performance", key="analyze_performance_btn"):
                 self.analyze_watchlist_stocks()
         
+        # Watchlist is automatically saved when modified
+        
         with col4:
             if st.button("🗑️ Clear Watchlist", key="clear_watchlist_btn"):
                 st.session_state.watchlist = []
@@ -1590,31 +1535,6 @@ class StreamlitTradingApp:
                 self._auto_save_watchlist()
                 st.success("Watchlist cleared!")
                 st.rerun()
-        
-        # Initialize selected items in session state if not exists
-        if 'selected_watchlist_items' not in st.session_state:
-            st.session_state.selected_watchlist_items = []
-            
-        # Add bulk actions section
-        if st.session_state.watchlist:
-            st.markdown("---")
-            st.subheader("Bulk Actions")
-            
-            # Bulk action buttons
-            col1, col2 = st.columns([1, 3])
-            
-            with col1:
-                if st.button("🗑️ Delete Selected", 
-                           type="primary", 
-                           disabled=not st.session_state.selected_watchlist_items,
-                           key="delete_selected_btn"):
-                    st.session_state['delete_from_watchlist_multiple'] = True
-                    st.rerun()
-            
-            with col2:
-                st.caption(f"{len(st.session_state.selected_watchlist_items)} items selected")
-            
-            st.markdown("---")
         
         # Display watchlist
         if st.session_state.watchlist:
@@ -1631,9 +1551,8 @@ class StreamlitTradingApp:
                 st.metric("Active", active_count)
             
             with col3:
-                # Calculate total P&L percentage across all positions
-                total_invested = 0
-                total_current = 0
+                # Calculate simple average of percentage returns
+                total_pnl_percent = 0
                 valid_stocks = 0
                 
                 for item in st.session_state.watchlist:
@@ -1641,24 +1560,24 @@ class StreamlitTradingApp:
                     current_price = item.get('current_price', 0)
                     
                     if entry_price > 0:  # Only calculate if we have an entry price
-                        total_invested += entry_price
-                        total_current += current_price
+                        pnl_percent = ((current_price - entry_price) / entry_price) * 100
+                        total_pnl_percent += pnl_percent
                         valid_stocks += 1
                 
-                # Calculate total P&L percentage
-                if valid_stocks > 0 and total_invested > 0:
-                    total_pnl_percent = ((total_current - total_invested) / total_invested) * 100
+                # Calculate average P&L percentage
+                if valid_stocks > 0:
+                    avg_pnl_percent = total_pnl_percent / valid_stocks
                     
                     # Add color to the P&L display
-                    pnl_color = "#28a745" if total_pnl_percent > 0 else "#dc3545" if total_pnl_percent < 0 else "#6c757d"
+                    pnl_color = "#28a745" if avg_pnl_percent > 0 else "#dc3545" if avg_pnl_percent < 0 else "#6c757d"
                     st.markdown(
                         f'<div style="font-size: 1.5rem; color: {pnl_color};">' 
-                        f'<b>Total P&L</b><br>{total_pnl_percent:+.1f}%' 
+                        f'<b>Avg P&L</b><br>{avg_pnl_percent:+.1f}%' 
                         '</div>', 
                         unsafe_allow_html=True
                     )
                 else:
-                    st.metric("Total P&L", "0.0%")
+                    st.metric("Avg P&L", "0.0%")
             
             with col4:
                 st.metric("Actions", "View Saved")
@@ -1715,22 +1634,9 @@ class StreamlitTradingApp:
                     reverse=not reverse_sort  # Most recent first by default
                 )
             
-            # Display sorted watchlist items with checkboxes in the table
+            # Display sorted watchlist items in rows
             for i, item in enumerate(sorted_watchlist):
-                symbol = item.get('symbol', 'N/A')
-                
-                # Pass the selection state to the display function
-                item['_is_selected'] = symbol in st.session_state.selected_watchlist_items
-                
-                # Display the watchlist row with checkbox
                 ExpandableUI.display_watchlist_row(item, i)
-                
-                # Update selected items based on the checkbox state from the row
-                if '_checkbox_state' in item:
-                    if item['_checkbox_state'] and symbol not in st.session_state.selected_watchlist_items:
-                        st.session_state.selected_watchlist_items.append(symbol)
-                    elif not item['_checkbox_state'] and symbol in st.session_state.selected_watchlist_items:
-                        st.session_state.selected_watchlist_items.remove(symbol)
         else:
             st.info("No stocks in watchlist. Add stocks from recommendations or manual analysis.")
     
@@ -3103,28 +3009,26 @@ class StreamlitTradingApp:
             st.success(f"✅ Added {symbol} to watchlist")
             
         except Exception as e:
-            st.error(f"❌ Error adding {rec.get('symbol', 'stock')} to watchlist: {str(e)}")
-            logger.exception(f"Error in add_to_watchlist for {rec.get('symbol')}")
-            
+            st.error(f"❌ Error adding to watchlist: {str(e)}")
+    
     def analyze_watchlist_stocks(self):
-        """Analyze watchlist stocks with sentiment analysis aligned to top performers."""
+        """Analyze watchlist stocks for learning."""
         if not st.session_state.watchlist:
             st.error("No stocks in watchlist to analyze")
             return
         
-        with st.spinner("🧠 Analyzing watchlist performance and sentiment patterns..."):
+        with st.spinner("🧠 Learning from watchlist performance..."):
             try:
-                # First pass: Collect all data and calculate performance
-                stocks_data = []
+                analyzed_count = 0
                 total_count = len(st.session_state.watchlist)
                 
-                progress_bar = st.progress(0, text="Gathering stock data...")
+                progress_bar = st.progress(0)
                 
                 for i, item in enumerate(st.session_state.watchlist):
                     symbol = item.get('symbol')
                     if not symbol:
                         continue
-                        
+                    
                     try:
                         symbol_with_suffix = f"{symbol}.NS"
                         
@@ -3142,6 +3046,18 @@ class StreamlitTradingApp:
                             if symbol.lower() in article.get('title', '').lower() or symbol.lower() in article.get('description', '').lower():
                                 news_articles.append(article)
                         
+                        # Get comprehensive Groq AI analysis
+                        groq_analysis = self.groq_analyzer.get_comprehensive_stock_analysis(
+                            symbol, technical_data, fundamental_data, news_articles
+                        )
+                        
+                        # Get Gemini AI learning analysis
+                        gemini_analysis = None
+                        if self.gemini_analyzer.initialized:
+                            gemini_analysis = self.gemini_analyzer.analyze_stock_for_learning(
+                                symbol, technical_data, fundamental_data, news_articles, groq_analysis, item
+                            )
+                        
                         # Calculate performance
                         entry_price = item.get('entry_price', 0)
                         current_price = technical_data.get('current_price', 0)
@@ -3149,104 +3065,28 @@ class StreamlitTradingApp:
                         if entry_price > 0 and current_price > 0:
                             performance_pct = ((current_price - entry_price) / entry_price) * 100
                         
-                        stocks_data.append({
-                            'symbol': symbol,
-                            'item': item,
-                            'technical_data': technical_data,
-                            'fundamental_data': fundamental_data,
-                            'news_articles': news_articles,
+                        # Update watchlist item
+                        item.update({
+                            'current_price': current_price,
                             'performance_pct': performance_pct,
-                            'current_price': current_price
-                        })
-                        
-                        progress_bar.progress((i + 1) / total_count, text=f"Gathered data for {symbol}...")
-                        
-                    except Exception as e:
-                        logger.error(f"Error gathering data for {symbol}: {str(e)}")
-                        continue
-                
-                if not stocks_data:
-                    st.error("❌ No valid stock data to analyze")
-                    return
-                
-                # Sort stocks by performance (best to worst)
-                sorted_stocks = sorted(stocks_data, key=lambda x: x['performance_pct'], reverse=True)
-                
-                # Get top 30% performing stocks for sentiment pattern analysis
-                top_performers = sorted_stocks[:max(1, int(len(sorted_stocks) * 0.3))]
-                
-                # Analyze sentiment patterns in top performers
-                st.info("🔍 Analyzing sentiment patterns in top-performing stocks...")
-                sentiment_patterns = self._analyze_sentiment_patterns(top_performers)
-                
-                # Second pass: Perform analysis with sentiment context
-                analyzed_count = 0
-                progress_bar.progress(0, text="Analyzing stocks with sentiment context...")
-                
-                for i, stock in enumerate(sorted_stocks):
-                    try:
-                        # Get comprehensive Groq AI analysis with sentiment patterns
-                        groq_analysis = self.groq_analyzer.get_comprehensive_stock_analysis(
-                            stock['symbol'], 
-                            stock['technical_data'], 
-                            stock['fundamental_data'], 
-                            stock['news_articles']
-                        )
-                        
-                        # Get Gemini AI learning analysis with performance context
-                        gemini_analysis = None
-                        if hasattr(self, 'gemini_analyzer') and self.gemini_analyzer.initialized:
-                            gemini_analysis = self.gemini_analyzer.analyze_stock_for_learning(
-                                stock['symbol'], 
-                                stock['technical_data'], 
-                                stock['fundamental_data'], 
-                                stock['news_articles'], 
-                                groq_analysis, 
-                                stock['item']
-                            )
-                        
-                        # Update watchlist item with enhanced analysis
-                        stock['item'].update({
-                            'current_price': stock['current_price'],
-                            'performance_pct': stock['performance_pct'],
                             'last_learning_analysis': datetime.now().isoformat(),
-                            'learning_insights': gemini_analysis.get('analysis', {}) if gemini_analysis else {},
-                            'sentiment_analysis': groq_analysis.get('sentiment', {}) if groq_analysis else {},
-                            'performance_rank': i + 1,
-                            'is_top_performer': stock in top_performers,
-                            'sentiment_patterns': sentiment_patterns if stock in top_performers else {}
+                            'learning_insights': gemini_analysis.get('analysis', {}) if gemini_analysis else {}
                         })
                         
                         analyzed_count += 1
-                        progress_bar.progress((i + 1) / len(sorted_stocks), 
-                                           text=f"Analyzed {stock['symbol']}...")
+                        progress_bar.progress((i + 1) / total_count)
                         
                     except Exception as e:
-                        logger.error(f"Error analyzing {stock['symbol']}: {str(e)}")
+                        logger.error(f"Error analyzing watchlist stock {symbol}: {str(e)}")
                         continue
                 
-                progress_bar.empty()
-                
-                # Show analysis summary
-                top_symbols = [s['symbol'] for s in top_performers]
-                st.success(f"✅ Analyzed {analyzed_count}/{total_count} stocks. "
-                         f"Top performers: {', '.join(top_symbols[:3])}...")
-                
-                # Show sentiment patterns if found
-                if sentiment_patterns:
-                    with st.expander("💡 Sentiment Patterns in Top Performers"):
-                        st.write("Common sentiment patterns in top-performing stocks:")
-                        for pattern, details in sentiment_patterns.items():
-                            st.markdown(f"- **{pattern.replace('_', ' ').title()}**: {details.get('description', '')}")
-                            if 'keywords' in details and details['keywords']:
-                                st.markdown(f"  - *Keywords*: {', '.join(k[0] for k in details['keywords'])}")
+                st.success(f"✅ Learned from {analyzed_count}/{total_count} watchlist stocks")
                 
             except Exception as e:
                 st.error(f"❌ Error in watchlist learning analysis: {str(e)}")
     
     def analyze_swing_performance(self):
         """Analyze swing trading performance and adjust parameters."""
-        # ... (rest of the code remains the same)
         try:
             with st.spinner("📊 Analyzing swing trading performance..."):
                 # Get all swing strategies from data persistence
