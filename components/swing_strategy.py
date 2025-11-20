@@ -49,6 +49,7 @@ class SwingTradingStrategy:
                     'shares': 0,
                     'investment_amount': 0,
                     'risk_amount': 0,
+                    'risk_percentage': 0,
                     'reason': f'Confidence too low: {confidence:.1f}% < {self.confidence_threshold:.1f}%'
                 }
             
@@ -62,6 +63,7 @@ class SwingTradingStrategy:
                     'shares': 0,
                     'investment_amount': 0,
                     'risk_amount': 0,
+                    'risk_percentage': 0,
                     'reason': 'Invalid price data'
                 }
             
@@ -106,6 +108,7 @@ class SwingTradingStrategy:
                 'shares': 0,
                 'investment_amount': 0,
                 'risk_amount': 0,
+                'risk_percentage': 0,
                 'reason': f'Error: {str(e)}'
             }
     

@@ -1040,7 +1040,12 @@ class ExpandableUI:
             with col_sel:
                 select_key = f"watchlist_select_{symbol}"
                 current_val = st.session_state.get(select_key, False)
-                st.checkbox("", key=select_key, value=current_val)
+                st.checkbox(
+                    f"Select {symbol} from watchlist",
+                    key=select_key,
+                    value=current_val,
+                    label_visibility="collapsed",
+                )
             
             with col1:
                 st.markdown(f'<div class="compact-row">', unsafe_allow_html=True)

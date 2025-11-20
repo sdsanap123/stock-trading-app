@@ -50,7 +50,7 @@ class AIRecommendationEngine:
     
     def generate_ai_recommendation(self, stock_data: Dict, technical_analysis: Dict, 
                                  news_sentiment: float, catalysts: List[str], groq_analysis: Dict = None, 
-                                 gemini_analysis: Dict = None) -> Dict:
+                                 gemini_analysis: Dict = None, use_fundamental: bool = True) -> Dict:
         """Generate AI-powered recommendation with comprehensive analysis."""
         try:
             # AI scoring based on multiple factors
@@ -162,10 +162,10 @@ class AIRecommendationEngine:
             ai_score += technical_score * self.ai_weights['technical']
             
             # Fundamental analysis weight (25%) - Now using REAL fundamental data
-            fundamental_score = 0.5  # Default neutral score
+            fundamental_score = 0.0
             
             # Try to get real fundamental analysis if available
-            if hasattr(self, 'fundamental_analyzer') and self.fundamental_analyzer:
+            if use_fundamental and hasattr(self, 'fundamental_analyzer') and self.fundamental_analyzer:
                 try:
                     # Get fundamental data for the stock
                     symbol = stock_data.get('symbol', '')
@@ -180,7 +180,7 @@ class AIRecommendationEngine:
                         financial_data = self.fundamental_analyzer.get_financial_data(symbol_with_suffix)
                         if financial_data:
                             fundamental_analysis = self.fundamental_analyzer.calculate_fundamental_score(financial_data)
-                            fundamental_score = fundamental_analysis.get('score', 0.5)
+                            fundamental_score = fundamental_analysis.get('score', 0.0)
                             
                             # Add fundamental ratings to reasoning
                             ratings = fundamental_analysis.get('ratings', {})
@@ -188,13 +188,16 @@ class AIRecommendationEngine:
                                 self.fundamental_ratings = ratings
                         else:
                             logger.warning(f"No fundamental data available for {symbol_with_suffix}")
-                            fundamental_score = 0.0  # No fallback - set to 0 when no data
+                    else:
+                        logger.warning("Symbol missing - cannot fetch fundamental data")
                 except Exception as e:
                     logger.warning(f"Could not perform fundamental analysis: {str(e)}")
-                    fundamental_score = 0.0  # No fallback - set to 0 when error occurs
+                    fundamental_score = 0.0
             else:
-                logger.warning("Fundamental analyzer not available - using neutral score")
-                fundamental_score = 0.5  # Use neutral score when analyzer not available
+                # Explicitly clear ratings when fundamentals are disabled
+                self.fundamental_ratings = {}
+                if use_fundamental and not hasattr(self, 'fundamental_analyzer'):
+                    logger.warning("Fundamental analyzer not available - fundamental score will stay at 0")
             
             # Ensure fundamental score is between 0 and 1
             fundamental_score = max(0, min(1, fundamental_score))
@@ -290,7 +293,8 @@ class AIRecommendationEngine:
             reasoning = self._generate_reasoning(
                 technical_score, fundamental_score, sentiment_score, 
                 catalyst_score, market_score, ai_score, action, confidence,
-                technical_analysis, groq_analysis, gemini_analysis
+                technical_analysis, groq_analysis, gemini_analysis,
+                use_fundamental=use_fundamental
             )
             
             # Create recommendation result
@@ -348,7 +352,7 @@ class AIRecommendationEngine:
                           sentiment_score: float, catalyst_score: float, market_score: float,
                           ai_score: float, action: str, confidence: float,
                           technical_analysis: Dict, groq_analysis: Dict = None, 
-                          gemini_analysis: Dict = None) -> str:
+                          gemini_analysis: Dict = None, use_fundamental: bool = True) -> str:
         """Generate comprehensive reasoning for the recommendation."""
         try:
             reasoning_parts = []
@@ -402,7 +406,9 @@ class AIRecommendationEngine:
             reasoning_parts.append("📊 FUNDAMENTAL ANALYSIS:")
             reasoning_parts.append(f"• Fundamental Score: {fundamental_score:.2f}/1.0")
             
-            if self.fundamental_ratings:
+            if not use_fundamental:
+                reasoning_parts.append("• Fundamental analysis disabled for this run")
+            elif self.fundamental_ratings:
                 for metric, rating in self.fundamental_ratings.items():
                     reasoning_parts.append(f"• {metric}: {rating}")
             else:

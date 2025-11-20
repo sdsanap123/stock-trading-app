@@ -503,5 +503,296 @@
             "expiry_date": "2025-11-26",
             "is_buy_recommendation": true
         }
+    ],
+    "2025-11-20": [
+        {
+            "symbol": "POWERGRID",
+            "company_name": "",
+            "current_price": 275.1499938964844,
+            "recommendation": "BUY",
+            "confidence": 49.425,
+            "target_price": 287.0571098823547,
+            "stop_loss": 253.13799438476565,
+            "reasoning": "AI Analysis Score: 0.49/1.0\nRecommendation: BUY (Confidence: 49.4%)\n\n TECHNICAL ANALYSIS:\n Technical Score: 0.76/1.0\n RSI: 32.3 (Neutral)\n Price below SMA 20: Bearish trend\n SMA 20 < SMA 50: Downtrend\n MACD: -2.669 (Bearish)\n\n FUNDAMENTAL ANALYSIS:\n Fundamental Score: 0.00/1.0\n Fundamental analysis disabled for this run\n\n SENTIMENT ANALYSIS:\n Sentiment Score: 0.50/1.0\n Groq AI Analysis: Groq API\n\n GEMINI AI ANALYSIS:\n Gemini Recommendation: BUY\n Overall Score: 0.70\n Confidence: 80.0%\n Key Insights:\n  - Strong technical indicators\n  - Positive fundamental metrics\n  - Favorable market sentiment\n\n MARKET CONDITIONS:\n Market Score: 0.35/1.0\n Catalyst Score: 0.00/1.0\n\n RISK ASSESSMENT:\n Low confidence recommendation\n 7-Day Swing Strategy: Short-term position with 8% stop loss\n Consider position sizing based on risk tolerance\n Monitor daily for exit signals or target achievement\n Set stop loss to limit downside risk",
+            "technical_data": {
+                "symbol": "POWERGRID.NS",
+                "current_price": 275.1499938964844,
+                "rsi": 32.302456375763455,
+                "stochastic_k": 47.43519332772359,
+                "stochastic_d": 39.15358353782802,
+                "williams_r": -52.56480667227641,
+                "cci": -20.405671516990978,
+                "mfi": 50.59174973460219,
+                "macd": -2.6689300984751867,
+                "sma_10": 270.0229797363281,
+                "sma_20": 276.5578369140625,
+                "sma_50": 279.86016052246094,
+                "ema_12": 273.39617066711213,
+                "ema_26": 276.0651007655873,
+                "bb_upper": 292.3526665941224,
+                "bb_middle": 276.5578369140625,
+                "bb_lower": 260.76300723400254,
+                "atr": 4.459615968593348,
+                "obv": -19661564.0,
+                "volume_ratio_5": 1.2133569171819476,
+                "volume_ratio_20": 1.1651779839749508,
+                "current_volume": 15765235,
+                "avg_volume_5": 12993073.0,
+                "avg_volume_20": 13530323.45,
+                "price_change_1d": 0.3464557429471826,
+                "price_change_5d": 3.013847850624507,
+                "price_change_20d": -3.0565922504325105,
+                "trend_short": 0,
+                "trend_medium": -1,
+                "trend_long": -1,
+                "technical_score": 0.845,
+                "volume_ratio": 1.1651779839749508,
+                "timestamp": "2025-11-20T08:33:25.079303"
+            },
+            "fundamental_data": {},
+            "groq_analysis": {
+                "status": "success",
+                "overall_score": 0.65,
+                "recommendation": "BUY",
+                "confidence": 0.75,
+                "reasoning": "Based on the technical analysis, POWERGRID is showing signs of a potential uptrend. The RSI is at 32.3, indicating oversold conditions. The MACD is negative, but the stochastic K is at 47.4, suggesting a potential buy signal. The Bollinger Bands are tightening, indicating increased volatility. The moving averages are in a downtrend, but the volume ratio is above 1, indicating buying pressure. Fundamental data is not available, but news sentiment is neutral. Considering the risk-reward assessment, the technical and fundamental alignment, market timing considerations, news sentiment impact, and actionable insights for swing trading, the overall score is 0.65.",
+                "key_factors": [
+                    "oversold conditions",
+                    "buy signal",
+                    "increased volatility",
+                    "buying pressure"
+                ],
+                "risk_assessment": "MEDIUM",
+                "time_horizon": "MEDIUM",
+                "price_target": "290-300",
+                "stop_loss": "260",
+                "technical_insights": "POWERGRID is showing signs of a potential uptrend. The RSI is at 32.3, indicating oversold conditions. The MACD is negative, but the stochastic K is at 47.4, suggesting a potential buy signal. The Bollinger Bands are tightening, indicating increased volatility.",
+                "fundamental_insights": "No fundamental data is available for POWERGRID.",
+                "sentiment_insights": "News sentiment is neutral, with no significant positive or negative sentiment towards POWERGRID.",
+                "market_outlook": "The overall market perspective is uncertain, with mixed signals from various indicators. However, the technical analysis suggests a potential uptrend in POWERGRID.",
+                "source": "Groq API",
+                "timestamp": "2025-11-20T08:33:26.397342"
+            },
+            "gemini_analysis": {
+                "status": "success",
+                "analysis": {
+                    "overall_score": 0.7,
+                    "confidence": 0.8,
+                    "recommendation": "BUY",
+                    "risk_assessment": "MODERATE",
+                    "key_insights": [
+                        "Strong technical indicators",
+                        "Positive fundamental metrics",
+                        "Favorable market sentiment"
+                    ],
+                    "reasoning": "Comprehensive analysis shows positive outlook with moderate risk.",
+                    "timestamp": "2025-11-20T08:33:26.397342"
+                }
+            },
+            "swing_plan": {
+                "symbol": "POWERGRID",
+                "company_name": "",
+                "strategy_name": "7-Day Adaptive Swing Strategy",
+                "entry_date": "2025-11-20T08:33:26.431147",
+                "expected_exit_date": "2025-11-27T08:33:26.431147",
+                "holding_period_days": 7,
+                "current_price": 275.1499938964844,
+                "confidence": 49.425,
+                "position_size": 0,
+                "investment_amount": 0,
+                "risk_amount": 0,
+                "risk_percentage": 0,
+                "entry_price": 275.1499938964844,
+                "stop_loss": 265.5197441101074,
+                "take_profit": 282.0287437438965,
+                "risk_reward_ratio": 0.7142857142857134,
+                "potential_profit": 6.878749847412109,
+                "potential_loss": 9.630249786376964,
+                "strategy_rules": [
+                    "Hold for maximum 7 days",
+                    "Stop loss at 3.5% below entry",
+                    "Take profit at 2.5% above entry",
+                    "Risk-reward ratio: 0.67:1 minimum",
+                    "Position size: 0 shares (0)"
+                ],
+                "risk_management": [
+                    "Set stop loss immediately after entry",
+                    "Monitor daily for exit signals",
+                    "Consider partial profit booking at 10% gain",
+                    "Exit if fundamentals deteriorate",
+                    "Exit if news sentiment turns negative"
+                ],
+                "success_criteria": [
+                    "Target: 282.03 (6.88 profit)",
+                    "Stop loss: 265.52 (9.63 loss)",
+                    "Risk-reward: 0.71:1",
+                    "Expected holding: 7 days"
+                ]
+            },
+            "swing_validation": {
+                "symbol": "POWERGRID",
+                "is_suitable": true,
+                "score": 80,
+                "reasons": [
+                    "RSI in good range: 32.3",
+                    "Reasonable 5-day change: 3.0%",
+                    "Strong Groq analysis: 0.65",
+                    "Good price level: 275.15"
+                ],
+                "warnings": [
+                    "Low confidence: 49.4%"
+                ],
+                "recommendations": [
+                    "Strong swing trading opportunity"
+                ]
+            },
+            "created_at": "2025-11-20T08:33:26.432186",
+            "expiry_date": "2025-11-27"
+        },
+        {
+            "symbol": "POWERGRID",
+            "company_name": "",
+            "current_price": 275.1499938964844,
+            "recommendation": "BUY",
+            "confidence": 49.425,
+            "target_price": 287.0571098823547,
+            "stop_loss": 253.13799438476565,
+            "reasoning": "AI Analysis Score: 0.49/1.0\nRecommendation: BUY (Confidence: 49.4%)\n\n TECHNICAL ANALYSIS:\n Technical Score: 0.76/1.0\n RSI: 32.3 (Neutral)\n Price below SMA 20: Bearish trend\n SMA 20 < SMA 50: Downtrend\n MACD: -2.669 (Bearish)\n\n FUNDAMENTAL ANALYSIS:\n Fundamental Score: 0.00/1.0\n Fundamental analysis disabled for this run\n\n SENTIMENT ANALYSIS:\n Sentiment Score: 0.50/1.0\n Groq AI Analysis: Groq API\n\n GEMINI AI ANALYSIS:\n Gemini Recommendation: BUY\n Overall Score: 0.70\n Confidence: 80.0%\n Key Insights:\n  - Strong technical indicators\n  - Positive fundamental metrics\n  - Favorable market sentiment\n\n MARKET CONDITIONS:\n Market Score: 0.35/1.0\n Catalyst Score: 0.00/1.0\n\n RISK ASSESSMENT:\n Low confidence recommendation\n 7-Day Swing Strategy: Short-term position with 8% stop loss\n Consider position sizing based on risk tolerance\n Monitor daily for exit signals or target achievement\n Set stop loss to limit downside risk",
+            "technical_data": {
+                "symbol": "POWERGRID.NS",
+                "current_price": 275.1499938964844,
+                "rsi": 32.302456375763455,
+                "stochastic_k": 47.43519332772359,
+                "stochastic_d": 39.15358353782802,
+                "williams_r": -52.56480667227641,
+                "cci": -20.405671516990978,
+                "mfi": 50.59174973460219,
+                "macd": -2.6689300984751867,
+                "sma_10": 270.0229797363281,
+                "sma_20": 276.5578369140625,
+                "sma_50": 279.86016052246094,
+                "ema_12": 273.39617066711213,
+                "ema_26": 276.0651007655873,
+                "bb_upper": 292.3526665941224,
+                "bb_middle": 276.5578369140625,
+                "bb_lower": 260.76300723400254,
+                "atr": 4.459615968593348,
+                "obv": -19661564.0,
+                "volume_ratio_5": 1.2133569171819476,
+                "volume_ratio_20": 1.1651779839749508,
+                "current_volume": 15765235,
+                "avg_volume_5": 12993073.0,
+                "avg_volume_20": 13530323.45,
+                "price_change_1d": 0.3464557429471826,
+                "price_change_5d": 3.013847850624507,
+                "price_change_20d": -3.0565922504325105,
+                "trend_short": 0,
+                "trend_medium": -1,
+                "trend_long": -1,
+                "technical_score": 0.845,
+                "volume_ratio": 1.1651779839749508,
+                "timestamp": "2025-11-20T08:33:25.079303"
+            },
+            "fundamental_data": {},
+            "groq_analysis": {
+                "status": "success",
+                "overall_score": 0.65,
+                "recommendation": "BUY",
+                "confidence": 0.75,
+                "reasoning": "Based on the technical analysis, POWERGRID is showing signs of a potential uptrend. The RSI is at 32.3, indicating oversold conditions. The MACD is negative, but the stochastic K is at 47.4, suggesting a potential buy signal. The Bollinger Bands are tightening, indicating increased volatility. The moving averages are in a downtrend, but the volume ratio is above 1, indicating buying pressure. Fundamental data is not available, but news sentiment is neutral. Considering the risk-reward assessment, the technical and fundamental alignment, market timing considerations, news sentiment impact, and actionable insights for swing trading, the overall score is 0.65.",
+                "key_factors": [
+                    "oversold conditions",
+                    "buy signal",
+                    "increased volatility",
+                    "buying pressure"
+                ],
+                "risk_assessment": "MEDIUM",
+                "time_horizon": "MEDIUM",
+                "price_target": "290-300",
+                "stop_loss": "260",
+                "technical_insights": "POWERGRID is showing signs of a potential uptrend. The RSI is at 32.3, indicating oversold conditions. The MACD is negative, but the stochastic K is at 47.4, suggesting a potential buy signal. The Bollinger Bands are tightening, indicating increased volatility.",
+                "fundamental_insights": "No fundamental data is available for POWERGRID.",
+                "sentiment_insights": "News sentiment is neutral, with no significant positive or negative sentiment towards POWERGRID.",
+                "market_outlook": "The overall market perspective is uncertain, with mixed signals from various indicators. However, the technical analysis suggests a potential uptrend in POWERGRID.",
+                "source": "Groq API",
+                "timestamp": "2025-11-20T08:33:26.397342"
+            },
+            "gemini_analysis": {
+                "status": "success",
+                "analysis": {
+                    "overall_score": 0.7,
+                    "confidence": 0.8,
+                    "recommendation": "BUY",
+                    "risk_assessment": "MODERATE",
+                    "key_insights": [
+                        "Strong technical indicators",
+                        "Positive fundamental metrics",
+                        "Favorable market sentiment"
+                    ],
+                    "reasoning": "Comprehensive analysis shows positive outlook with moderate risk.",
+                    "timestamp": "2025-11-20T08:33:26.397342"
+                }
+            },
+            "swing_plan": {
+                "symbol": "POWERGRID",
+                "company_name": "",
+                "strategy_name": "7-Day Adaptive Swing Strategy",
+                "entry_date": "2025-11-20T08:33:26.431147",
+                "expected_exit_date": "2025-11-27T08:33:26.431147",
+                "holding_period_days": 7,
+                "current_price": 275.1499938964844,
+                "confidence": 49.425,
+                "position_size": 0,
+                "investment_amount": 0,
+                "risk_amount": 0,
+                "risk_percentage": 0,
+                "entry_price": 275.1499938964844,
+                "stop_loss": 265.5197441101074,
+                "take_profit": 282.0287437438965,
+                "risk_reward_ratio": 0.7142857142857134,
+                "potential_profit": 6.878749847412109,
+                "potential_loss": 9.630249786376964,
+                "strategy_rules": [
+                    "Hold for maximum 7 days",
+                    "Stop loss at 3.5% below entry",
+                    "Take profit at 2.5% above entry",
+                    "Risk-reward ratio: 0.67:1 minimum",
+                    "Position size: 0 shares (0)"
+                ],
+                "risk_management": [
+                    "Set stop loss immediately after entry",
+                    "Monitor daily for exit signals",
+                    "Consider partial profit booking at 10% gain",
+                    "Exit if fundamentals deteriorate",
+                    "Exit if news sentiment turns negative"
+                ],
+                "success_criteria": [
+                    "Target: 282.03 (6.88 profit)",
+                    "Stop loss: 265.52 (9.63 loss)",
+                    "Risk-reward: 0.71:1",
+                    "Expected holding: 7 days"
+                ]
+            },
+            "swing_validation": {
+                "symbol": "POWERGRID",
+                "is_suitable": true,
+                "score": 80,
+                "reasons": [
+                    "RSI in good range: 32.3",
+                    "Reasonable 5-day change: 3.0%",
+                    "Strong Groq analysis: 0.65",
+                    "Good price level: 275.15"
+                ],
+                "warnings": [
+                    "Low confidence: 49.4%"
+                ],
+                "recommendations": [
+                    "Strong swing trading opportunity"
+                ]
+            },
+            "created_at": "2025-11-20T08:33:26.440505",
+            "expiry_date": "2025-11-27",
+            "is_buy_recommendation": true
+        }
     ]
 }
