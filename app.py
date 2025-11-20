@@ -75,6 +75,7 @@ from components.data_persistence import DataPersistenceManager
 from components.expandable_ui import ExpandableUI
 from components.scheduled_analysis import ScheduledAnalysis
 from components.swing_performance_tracker import SwingPerformanceTracker
+from components.enhanced_portfolio import render_enhanced_portfolio
 
 # Page configuration
 st.set_page_config(
@@ -438,7 +439,9 @@ class StreamlitTradingApp:
     def _auto_save_watchlist(self):
         """Automatically save watchlist."""
         try:
-            if st.session_state.get('watchlist'):
+            # Always persist the current watchlist (including empty) so
+            # clears and deletions are saved across sessions
+            if 'watchlist' in st.session_state:
                 data_persistence = st.session_state.data_persistence
                 data_persistence.save_watchlist(st.session_state.watchlist)
                 logger.info(f"Auto-saved {len(st.session_state.watchlist)} watchlist items")
@@ -639,6 +642,20 @@ class StreamlitTradingApp:
         
         with tab8:
             self.notifications_tab()
+
+    def portfolio_tab(self):
+        """Portfolio tab - show enhanced portfolio UI."""
+        render_enhanced_portfolio()
+    
+    def notifications_tab(self):
+        """Placeholder tab for alerts and notifications."""
+        st.header("🔔 Alerts & Notifications")
+        st.info("Alert configuration and notifications will appear here in a future update.")
+    
+    def manual_analysis_tab(self):
+        """Placeholder tab for manual stock analysis."""
+        st.header("🔍 Manual Stock Analysis")
+        st.info("Manual analysis tools will appear here. For now, use the BUY and Swing tabs for AI-driven ideas.")
     
     def create_sidebar(self):
         """Create the sidebar with controls."""
@@ -1471,127 +1488,108 @@ class StreamlitTradingApp:
                 
                 # Ensure we have valid values
                 entry_price = entry_price or current_price
-                take_profit = take_profit or (entry_price * 1.02)  # Default 2% take profit
-                stop_loss = stop_loss or (entry_price * 0.98)  # Default 2% stop loss
-                
-                # Update the strategy dictionary with the calculated values
-                strategy.update({
-                    'entry_price': entry_price,
-                    'take_profit': take_profit,
-                    'stop_loss': stop_loss,
-                    'current_price': current_price
-                })
-                
-                # Display the row
-                ExpandableUI.display_swing_strategy_row(strategy, i)
-        else:
-            st.info("No swing trading plans available. Generate BUY recommendations first.")
     
     def watchlist_tab(self):
         """Watchlist tab."""
         st.header("👀 Watchlist Management")
-        
+
         # Auto-update prices if it's the first load or refresh interval has passed
         last_update = st.session_state.get('last_price_update')
         refresh_interval = 300  # 5 minutes in seconds
-        
+
         if last_update is None or (datetime.now() - last_update).total_seconds() > refresh_interval:
             with st.spinner("Updating stock prices..."):
                 self.update_watchlist_prices()
             st.session_state['last_price_update'] = datetime.now()
-        
-        # Check for delete actions from watchlist details
+
+        # Check for delete actions from watchlist details (per-row X button)
         for key in list(st.session_state.keys()):
             if key.startswith('delete_from_watchlist_'):
                 symbol_to_delete = key.replace('delete_from_watchlist_', '')
-                # Remove the stock from watchlist
                 st.session_state.watchlist = [
-                    item for item in st.session_state.watchlist 
+                    item for item in st.session_state.watchlist
                     if item.get('symbol') != symbol_to_delete
                 ]
-                # Auto-save watchlist
                 self._auto_save_watchlist()
-                # Clear the session state flag
                 del st.session_state[key]
                 st.success(f"✅ Deleted {symbol_to_delete} from watchlist!")
                 st.rerun()
-        
+
+        # Top action buttons
         col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-        
+
         with col1:
             if st.button("🔄 Update Prices", type="primary", key="update_prices_btn"):
                 self.update_watchlist_prices()
-        
+
         with col2:
             if st.button("🧠 Analyze Performance", key="analyze_performance_btn"):
                 self.analyze_watchlist_stocks()
-        
-        # Watchlist is automatically saved when modified
-        
+
+        # col3 reserved for future actions
+
         with col4:
             if st.button("🗑️ Clear Watchlist", key="clear_watchlist_btn"):
                 st.session_state.watchlist = []
-                # Auto-save empty watchlist
                 self._auto_save_watchlist()
                 st.success("Watchlist cleared!")
                 st.rerun()
-        
-        # Display watchlist
+
+        # Display watchlist content
         if st.session_state.watchlist:
             st.subheader(f"👀 Watchlist ({len(st.session_state.watchlist)} stocks)")
-            
+
             # Summary metrics
             col1, col2, col3, col4 = st.columns(4)
-            
+
             with col1:
                 st.metric("Total Stocks", len(st.session_state.watchlist))
-            
+
             with col2:
-                active_count = len([item for item in st.session_state.watchlist if item.get('status') == 'ACTIVE'])
+                active_count = len([
+                    item for item in st.session_state.watchlist
+                    if item.get('status') == 'ACTIVE'
+                ])
                 st.metric("Active", active_count)
-            
+
             with col3:
-                # Calculate simple average of percentage returns
                 total_pnl_percent = 0
                 valid_stocks = 0
-                
                 for item in st.session_state.watchlist:
                     entry_price = item.get('entry_price', 0)
                     current_price = item.get('current_price', 0)
-                    
-                    if entry_price > 0:  # Only calculate if we have an entry price
+                    if entry_price > 0:
                         pnl_percent = ((current_price - entry_price) / entry_price) * 100
                         total_pnl_percent += pnl_percent
                         valid_stocks += 1
-                
-                # Calculate average P&L percentage
+
                 if valid_stocks > 0:
                     avg_pnl_percent = total_pnl_percent / valid_stocks
-                    
-                    # Add color to the P&L display
                     pnl_color = "#28a745" if avg_pnl_percent > 0 else "#dc3545" if avg_pnl_percent < 0 else "#6c757d"
                     st.markdown(
-                        f'<div style="font-size: 1.5rem; color: {pnl_color};">' 
-                        f'<b>Avg P&L</b><br>{avg_pnl_percent:+.1f}%' 
-                        '</div>', 
+                        f'<div style="font-size: 1.5rem; color: {pnl_color};">'
+                        f'<b>Avg P&L</b><br>{avg_pnl_percent:+.1f}%'
+                        '</div>',
                         unsafe_allow_html=True
                     )
                 else:
                     st.metric("Avg P&L", "0.0%")
-            
+
             with col4:
                 st.metric("Actions", "View Saved")
                 if st.button("📊 View Saved", key="view_saved_watchlist"):
-                    st.session_state.show_saved_watchlist = not st.session_state.get('show_saved_watchlist', False)
-            
+                    st.session_state.show_saved_watchlist = not st.session_state.get(
+                        'show_saved_watchlist', False
+                    )
+
             # Show saved watchlist if toggled
             if st.session_state.get('show_saved_watchlist', False):
                 self.display_saved_watchlist()
                 return
-            
+
             st.markdown("---")
-            
-            # Add sorting controls
+
+            # Sorting controls
             sort_col1, sort_col2 = st.columns(2)
             with sort_col1:
                 sort_by = st.selectbox(
@@ -1603,837 +1601,81 @@ class StreamlitTradingApp:
                 sort_order = st.radio(
                     "Order",
                     ["Ascending", "Descending"],
-                    index=1,  # Default to descending for most useful sort orders
+                    index=1,
                     horizontal=True,
                     key="watchlist_sort_order"
                 )
-            
-            # Sort the watchlist
+
+            # Apply sorting
             sorted_watchlist = st.session_state.watchlist.copy()
             reverse_sort = (sort_order == "Descending")
-            
+
             if sort_by == "Symbol":
-                sorted_watchlist.sort(key=lambda x: x.get('symbol', '').upper(), reverse=reverse_sort)
+                sorted_watchlist.sort(
+                    key=lambda x: x.get('symbol', '').upper(),
+                    reverse=reverse_sort
+                )
             elif sort_by == "P&L %":
                 sorted_watchlist.sort(
                     key=lambda x: (
-                        (x.get('current_price', 0) - x.get('entry_price', 0)) / x.get('entry_price', 1) 
+                        (x.get('current_price', 0) - x.get('entry_price', 0)) / x.get('entry_price', 1)
                         if x.get('entry_price', 0) > 0 else 0
                     ),
                     reverse=reverse_sort
                 )
             elif sort_by == "Current Price":
-                sorted_watchlist.sort(key=lambda x: x.get('current_price', 0), reverse=reverse_sort)
-            elif sort_by == "Entry Price":
-                sorted_watchlist.sort(key=lambda x: x.get('entry_price', 0), reverse=reverse_sort)
-            elif sort_by == "Status":
-                sorted_watchlist.sort(key=lambda x: x.get('status', ''), reverse=not reverse_sort)
-            else:  # Default sort by Date Added
                 sorted_watchlist.sort(
-                    key=lambda x: x.get('added_date', ''), 
-                    reverse=not reverse_sort  # Most recent first by default
+                    key=lambda x: x.get('current_price', 0),
+                    reverse=reverse_sort
                 )
-            
+            elif sort_by == "Entry Price":
+                sorted_watchlist.sort(
+                    key=lambda x: x.get('entry_price', 0),
+                    reverse=reverse_sort
+                )
+            elif sort_by == "Status":
+                sorted_watchlist.sort(
+                    key=lambda x: x.get('status', ''),
+                    reverse=not reverse_sort
+                )
+            else:  # Date Added
+                sorted_watchlist.sort(
+                    key=lambda x: x.get('added_date', ''),
+                    reverse=not reverse_sort  # Most recent first
+                )
+
             # Display sorted watchlist items in rows
             for i, item in enumerate(sorted_watchlist):
                 ExpandableUI.display_watchlist_row(item, i)
+
+            # Bulk delete selected stocks
+            st.markdown("---")
+            if st.button("🗑️ Delete Selected", key="bulk_delete_watchlist_btn"):
+                selected_symbols = []
+                for item in st.session_state.watchlist:
+                    symbol = item.get('symbol')
+                    if not symbol:
+                        continue
+                    if st.session_state.get(f"watchlist_select_{symbol}", False):
+                        selected_symbols.append(symbol)
+
+                if selected_symbols:
+                    st.session_state.watchlist = [
+                        item for item in st.session_state.watchlist
+                        if item.get('symbol') not in selected_symbols
+                    ]
+                    self._auto_save_watchlist()
+
+                    for symbol in selected_symbols:
+                        select_key = f"watchlist_select_{symbol}"
+                        if select_key in st.session_state:
+                            del st.session_state[select_key]
+
+                    st.success(f"Deleted {len(selected_symbols)} selected watchlist item(s)")
+                    st.rerun()
         else:
             st.info("No stocks in watchlist. Add stocks from recommendations or manual analysis.")
-    
-    def display_watchlist_item(self, item: Dict, index: int):
-        """Display a watchlist item."""
-        symbol = item.get('symbol', 'N/A')
-        current_price = item.get('current_price', 0)
-        entry_price = item.get('entry_price', 0)
-        target_price = item.get('target_price', 0)
-        stop_loss = item.get('stop_loss', 0)
-        recommendation = item.get('recommendation', 'HOLD')
-        confidence = item.get('confidence', 0)
-        performance_pct = item.get('performance_pct', 0)
-        
-        # Performance color
-        perf_color = "green" if performance_pct > 0 else "red" if performance_pct < 0 else "gray"
-        
-        col1, col2, col3 = st.columns([3, 1, 1])
-        
-        with col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h4>📈 {symbol}</h4>
-                <p><strong>Current:</strong> ₹{current_price:.2f} | 
-                <strong>Entry:</strong> ₹{entry_price:.2f} | 
-                <strong>Performance:</strong> <span style="color: {perf_color}">{performance_pct:+.2f}%</span></p>
-                <p><strong>Target:</strong> ₹{target_price:.2f} | 
-                <strong>Stop Loss:</strong> ₹{stop_loss:.2f}</p>
-                <p><strong>Recommendation:</strong> {recommendation} ({confidence:.1f}%)</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            if st.button(f"📊 Update", key=f"update_{index}"):
-                self.update_watchlist_item(symbol)
-        
-        with col3:
-            if st.button(f"🗑️ Remove", key=f"remove_{index}"):
-                st.session_state.watchlist.pop(index)
-                st.success(f"Removed {symbol} from watchlist")
-                st.rerun()
-        
-        st.markdown("---")
-    
-    def manual_analysis_tab(self):
-        """Manual Analysis tab."""
-        st.header("🔍 Manual Stock Analysis")
-        
-        # Input section
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            symbol = st.text_input(
-                "Stock Symbol", 
-                placeholder="Enter stock symbol (e.g., TCS, RELIANCE, HDFCBANK)",
-                help="Enter NSE stock symbol without .NS suffix"
-            )
-        
-        with col2:
-            if st.button("🔍 Analyze Stock", type="primary", key="analyze_stock_btn"):
-                if symbol:
-                    self.analyze_manual_stock(symbol.upper())
-                else:
-                    st.error("Please enter a stock symbol")
-        
-        # Display manual analysis results
-        if 'manual_analysis_result' in st.session_state:
-            self.display_manual_analysis_result()
-    
-    def _handle_portfolio_upload(self, uploaded_file):
-        """Handle the portfolio CSV file upload and process the data.
-        
-        Args:
-            uploaded_file: The uploaded file object from Streamlit
-            
-        Returns:
-            bool: True if import was successful, False otherwise
-        """
-        try:
-            # Read the CSV file
-            try:
-                # Try different encodings if the default fails
-                try:
-                    df = pd.read_csv(uploaded_file)
-                except UnicodeDecodeError:
-                    for encoding in ['utf-8', 'latin1', 'ISO-8859-1', 'windows-1252']:
-                        try:
-                            uploaded_file.seek(0)  # Reset file pointer
-                            df = pd.read_csv(uploaded_file, encoding=encoding)
-                            break
-                        except UnicodeDecodeError:
-                            continue
-                    else:
-                        raise ValueError("Could not decode the file. Please save it with UTF-8 encoding.")
-                
-                # Normalize column names (case and space insensitive)
-                column_map = {col.lower().strip(): col for col in df.columns}
-                
-                # Map common column name variations
-                symbol_col = next((col for col in ['symbol', 'ticker', 'stock', 'company'] 
-                                 if col in column_map), None)
-                qty_col = next((col for col in ['quantity', 'qty', 'shares', 'units'] 
-                              if col in column_map), None)
-                price_col = next((col for col in ['buy_price', 'price', 'cost', 'avg_price'] 
-                                if col in column_map), None)
-                
-                # Check for required columns
-                missing_cols = []
-                if not symbol_col:
-                    missing_cols.append("symbol/ticker")
-                if not qty_col:
-                    missing_cols.append("quantity/shares")
-                if not price_col:
-                    missing_cols.append("buy_price/price")
-                
-                if missing_cols:
-                    st.error(f"❌ Missing required columns: {', '.join(missing_cols)}")
-                    st.info("💡 Please ensure your CSV includes columns for symbol, quantity, and buy_price.")
-                    return False
-                
-                # Process each row in the CSV
-                success_count = 0
-                invalid_entries = []
-                processed_symbols = set()
-                
-                # Show processing progress
-                progress_bar = st.progress(0)
-                total_rows = len(df)
-                
-                for idx, row in df.iterrows():
-                    try:
-                        # Update progress
-                        progress = (idx + 1) / total_rows
-                        progress_bar.progress(min(progress, 1.0))
-                        
-                        # Get company name from the row
-                        company_name = str(row[symbol_col]).strip()
-                        if not company_name or pd.isna(company_name):
-                            invalid_entries.append(f"Row {idx+2}: Empty company name")
-                            continue
-                            
-                        # Skip header if it appears in the data
-                        if company_name.lower() in ['symbol', 'ticker', 'company', 'stock']:
-                            continue
-                            
-                        # Check for duplicate symbols in the file
-                        if company_name in processed_symbols:
-                            invalid_entries.append(f"{company_name} (duplicate entry, only the first one will be processed)")
-                            continue
-                            
-                        processed_symbols.add(company_name)
-                        
-                        # Clean and validate quantity
-                        try:
-                            quantity_str = str(row[qty_col]).strip()
-                            # Remove any non-numeric characters except decimal point
-                            quantity_str = ''.join(c for c in quantity_str if c.isdigit() or c in '.')
-                            if not quantity_str:
-                                raise ValueError("Empty quantity")
-                                
-                            quantity = float(quantity_str)
-                            if quantity <= 0:
-                                invalid_entries.append(f"{company_name} (invalid quantity: {row[qty_col]} - must be positive)")
-                                continue
-                            if not quantity.is_integer():
-                                invalid_entries.append(f"{company_name} (quantity must be a whole number: {row[qty_col]})")
-                                continue
-                            quantity = int(quantity)
-                                
-                        except (ValueError, TypeError) as e:
-                            invalid_entries.append(f"{company_name} (invalid quantity: {row[qty_col]})")
-                            continue
-                            
-                        # Clean and validate buy price
-                        try:
-                            # Handle various currency symbol representations and commas in the price
-                            price_str = str(row[price_col]).strip()
-                            
-                            # Remove any non-numeric characters except decimal point and minus sign
-                            price_str = ''.join(c for c in price_str if c.isdigit() or c in '.-')
-                            
-                            # If empty after cleaning, it's an invalid price
-                            if not price_str:
-                                raise ValueError("Empty price after cleaning")
-                                
-                            buy_price = float(price_str)
-                            
-                            if buy_price <= 0:
-                                invalid_entries.append(f"{company_name} (invalid price: {row[price_col]} - must be positive)")
-                                continue
-                                
-                        except (ValueError, TypeError) as e:
-                            invalid_entries.append(f"{company_name} (invalid price format: {row[price_col]})")
-                            continue
-                        
-                        # Get purchase date if available
-                        purchase_date = None
-                        date_col = next((col for col in ['purchase_date', 'date', 'buy_date'] 
-                                      if col in column_map), None)
-                        
-                        if date_col and date_col in row and pd.notna(row[date_col]):
-                            try:
-                                purchase_date = pd.to_datetime(row[date_col]).strftime('%Y-%m-%d')
-                            except (ValueError, TypeError):
-                                invalid_entries.append(f"{company_name} (invalid date format: {row[date_col]}, using today's date)")
-                        
-                        # Add to portfolio
-                        if hasattr(self, 'portfolio_manager'):
-                            # Use PortfolioManager if available
-                            symbol = company_name.upper()
-                            if not symbol.endswith(('.NS', '.BO')):
-                                symbol = f"{symbol}.NS"
-                                
-                            if self.portfolio_manager.buy_stock(
-                                symbol=symbol,
-                                quantity=quantity,
-                                price=buy_price,
-                                date=purchase_date,
-                                is_import=True
-                            ):
-                                success_count += 1
-                            else:
-                                invalid_entries.append(f"{company_name} (failed to add to portfolio)")
-                        else:
-                            # Fallback to session state portfolio
-                            st.session_state.portfolio.append({
-                                'symbol': company_name.upper(),
-                                'quantity': quantity,
-                                'buy_price': buy_price,
-                                'current_price': buy_price,
-                                'buy_date': purchase_date or datetime.now().strftime('%Y-%m-%d'),
-                                'last_updated': datetime.now().isoformat()
-                            })
-                            success_count += 1
-                            
-                    except Exception as e:
-                        logger.exception(f"Error processing row {idx+2}")
-                        invalid_entries.append(f"Row {idx+2}: {str(e)}")
-                
-                # Complete progress bar
-                progress_bar.progress(1.0)
-                
-                # Show results
-                if success_count > 0:
-                    st.success(f"✅ Successfully imported {success_count} out of {len(df)} holdings")
-                    
-                    # Show quick summary of imported holdings
-                    with st.expander("📊 Import Summary", expanded=True):
-                        st.write(f"• Total Holdings: {success_count}")
-                        if invalid_entries:
-                            st.warning(f"• {len(invalid_entries)} issues found (see below for details)")
-                        st.info("💡 Your portfolio has been updated. Check the 'My Portfolio' section to view your holdings.")
-                
-                if invalid_entries:
-                    with st.expander("⚠️ Import Issues", expanded=False):
-                        st.warning(f"Found {len(invalid_entries)} issues during import:")
-                        for issue in invalid_entries:
-                            st.write(f"- {issue}")
-                        
-                        st.info("""
-                        **Tips for fixing common issues:**
-                        - Ensure stock symbols match NSE/BSE format (e.g., 'RELIANCE' or 'RELIANCE.NS')
-                        - Quantities must be whole numbers
-                        - Prices should be positive numbers (commas are automatically handled)
-                        - Check for any extra spaces or special characters
-                        """)
-                
-                return success_count > 0
-                
-            except pd.errors.EmptyDataError:
-                st.error("❌ The uploaded file is empty.")
-                return False
-                
-            except pd.errors.ParserError as e:
-                st.error(f"❌ Error parsing the CSV file: {str(e)}")
-                st.info("💡 Please ensure the file is a valid CSV and try again.")
-                return False
-                
-            except Exception as e:
-                logger.exception("Error reading CSV file")
-                st.error(f"❌ Error processing the file: {str(e)}")
-                return False
-                
-        except Exception as e:
-            logger.exception("Error in portfolio upload")
-            st.error(f"❌ An unexpected error occurred: {str(e)}")
-            return False
-    
-    def _download_portfolio_template(self):
-        """Generate and download a portfolio template CSV file."""
-        try:
-            # Create a sample portfolio CSV
-            template_data = {
-                'symbol': ['RELIANCE', 'TCS', 'HDFCBANK'],
-                'quantity': [10, 5, 8],
-                'buy_price': [2500.50, 3500.75, 1500.25],
-                'purchase_date': ['2023-01-15', '2023-02-20', '2023-03-10']
-            }
-            
-            # Create DataFrame
-            df = pd.DataFrame(template_data)
-            
-            # Convert to CSV
-            csv = df.to_csv(index=False).encode('utf-8')
-            
-            # Download button
-            st.download_button(
-                label="💾 Download Portfolio Template",
-                data=csv,
-                file_name="portfolio_template.csv",
-                mime="text/csv",
-                help="Download a template CSV file with example data"
-            )
-            
-        except Exception as e:
-            logger.error(f"Error generating template: {str(e)}")
-            st.error("❌ Failed to generate template. Please try again.")
-    
-    def portfolio_tab(self):
-        """Portfolio tab with enhanced features."""
-        try:
-            # Import here to avoid circular imports
-            from components.enhanced_portfolio import render_enhanced_portfolio
-            
-            # Add custom CSS for better styling
-            st.markdown("""
-            <style>
-                .stTabs [data-baseweb="tab-list"] {
-                    gap: 8px;
-                }
-                .stTabs [data-baseweb="tab"] {
-                    height: 50px;
-                    white-space: pre;
-                    background-color: #f0f2f6;
-                    border-radius: 4px 4px 0 0;
-                    gap: 1px;
-                    padding: 10px 20px;
-                }
-                .stTabs [data-baseweb="tab"]:hover {
-                    background-color: #e6e9ef;
-                }
-                .stTabs [aria-selected="true"] {
-                    background-color: white;
-                    border-bottom: 2px solid #FF4B4B;
-                }
-                .stTabs [data-testid="stMarkdownContainer"] > p {
-                    font-size: 1.1rem;
-                    font-weight: 600;
-                }
-            </style>
-            """, unsafe_allow_html=True)
-            
-            # Render the enhanced portfolio
-            render_enhanced_portfolio()
-            
-        except Exception as e:
-            st.error(f"Error initializing portfolio: {str(e)}")
-            st.info("Please make sure all required components are properly installed.")
-            if st.button("Show Detailed Error"):
-                st.exception(e)
-    
-    def notifications_tab(self):
-        """Notifications management tab."""
-        st.header("🔔 Email Notifications & Price Monitoring")
-        st.info("Configure email notifications and real-time price monitoring for your stocks.")
-        
-        # Create tabs for different notification sections
-        notif_tab1, notif_tab2, notif_tab3, notif_tab4 = st.tabs([
-            "📧 Email Settings",
-            "⚙️ Alert Preferences", 
-            "📊 Price Monitoring",
-            "📋 Alert History"
-        ])
-        
-        with notif_tab1:
-            self.email_settings_section()
-        
-        with notif_tab2:
-            self.alert_preferences_section()
-        
-        with notif_tab3:
-            self.price_monitoring_section()
-        
-        with notif_tab4:
-            self.alert_history_section()
-    
-    def email_settings_section(self):
-        """Email settings configuration section."""
-        st.subheader("📧 Email Configuration")
-        
-        email_manager = st.session_state.email_notifications
-        settings = email_manager.settings
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**SMTP Settings**")
-            smtp_server = st.text_input("SMTP Server", value=settings.smtp_server, help="e.g., smtp.gmail.com")
-            smtp_port = st.number_input("SMTP Port", value=settings.smtp_port, min_value=1, max_value=65535)
-            
-            st.markdown("**Email Credentials**")
-            sender_email = st.text_input("Sender Email", value=settings.sender_email, type="default")
-            sender_password = st.text_input("Sender Password", value=settings.sender_password, type="password")
-            recipient_email = st.text_input("Recipient Email", value=settings.recipient_email, type="default")
-        
-        with col2:
-            st.markdown("**Email Status**")
-            
-            # Test email connection
-            if st.button("🧪 Test Email Connection", key="test_email_btn"):
-                with st.spinner("Testing email connection..."):
-                    result = email_manager.test_email_connection()
-                    if result['success']:
-                        st.success("✅ Email connection successful!")
-                    else:
-                        st.error(f"❌ Email connection failed: {result['message']}")
-            
-            # Email notifications toggle
-            email_enabled = st.checkbox("Enable Email Notifications", value=settings.email_enabled)
-            
-            if st.button("💾 Save Email Settings", key="save_email_settings_btn"):
-                try:
-                    email_manager.update_settings(
-                        smtp_server=smtp_server,
-                        smtp_port=smtp_port,
-                        sender_email=sender_email,
-                        sender_password=sender_password,
-                        recipient_email=recipient_email,
-                        email_enabled=email_enabled
-                    )
-                    st.success("✅ Email settings saved!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error saving email settings: {str(e)}")
-        
-        # Email templates preview
-        st.markdown("**📧 Email Templates Preview**")
-        with st.expander("View Email Templates"):
-            st.markdown("""
-            **Available Email Templates:**
-            - 🎯 **Target Hit**: Sent when stock reaches target price
-            - 🛑 **Stop Loss Hit**: Sent when stock hits stop loss
-            - 📊 **Significant Movement**: Sent for large price movements
-            - 📊 **Daily Summary**: Daily portfolio summary
-            - ⚠️ **Risk Alert**: Critical risk warnings
-            - 📈 **Swing Plan Update**: Swing trading plan updates
-            """)
-    
-    def alert_preferences_section(self):
-        """Alert preferences configuration section."""
-        st.subheader("⚙️ Alert Preferences")
-        
-        settings_manager = st.session_state.notification_settings
-        prefs = settings_manager.preferences
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Alert Types**")
-            target_hit = st.checkbox("Target Price Hit", value=prefs.target_hit_alerts)
-            stop_loss = st.checkbox("Stop Loss Hit", value=prefs.stop_loss_alerts)
-            significant_movement = st.checkbox("Significant Movement", value=prefs.significant_movement_alerts)
-            daily_summary = st.checkbox("Daily Summary", value=prefs.daily_summary)
-            risk_alerts = st.checkbox("Risk Alerts", value=prefs.risk_alerts)
-            swing_updates = st.checkbox("Swing Plan Updates", value=prefs.swing_plan_updates)
-        
-        with col2:
-            st.markdown("**Thresholds**")
-            movement_threshold = st.slider("Significant Movement %", 1.0, 20.0, prefs.thresholds.significant_movement_percent, 0.5)
-            max_alerts_hour = st.number_input("Max Alerts per Hour", 1, 50, prefs.thresholds.max_alerts_per_hour)
-            risk_threshold = st.slider("Risk Alert Threshold %", 5.0, 25.0, prefs.thresholds.risk_alert_threshold, 1.0)
-            
-            st.markdown("**Quiet Hours**")
-            quiet_start = st.time_input("Quiet Hours Start", value=datetime.strptime(prefs.quiet_hours_start, "%H:%M").time())
-            quiet_end = st.time_input("Quiet Hours End", value=datetime.strptime(prefs.quiet_hours_end, "%H:%M").time())
-        
-        if st.button("💾 Save Alert Preferences", key="save_alert_prefs_btn"):
-            try:
-                settings_manager.update_preferences(
-                    target_hit_alerts=target_hit,
-                    stop_loss_alerts=stop_loss,
-                    significant_movement_alerts=significant_movement,
-                    daily_summary=daily_summary,
-                    risk_alerts=risk_alerts,
-                    swing_plan_updates=swing_updates
-                )
-                
-                settings_manager.update_thresholds(
-                    significant_movement_percent=movement_threshold,
-                    max_alerts_per_hour=max_alerts_hour,
-                    risk_alert_threshold=risk_threshold
-                )
-                
-                settings_manager.update_preferences(
-                    quiet_hours_start=quiet_start.strftime("%H:%M"),
-                    quiet_hours_end=quiet_end.strftime("%H:%M")
-                )
-                
-                st.success("✅ Alert preferences saved!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error saving preferences: {str(e)}")
-    
-    def price_monitoring_section(self):
-        """Price monitoring management section."""
-        st.subheader("📊 Real-time Price Monitoring")
-        
-        price_monitor = st.session_state.price_monitor
-        monitor_status = price_monitor.get_monitoring_status()
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Monitoring Status**")
-            status_color = {
-                'running': '🟢',
-                'stopped': '🔴', 
-                'paused': '🟡',
-                'error': '🔴'
-            }
-            
-            status_emoji = status_color.get(monitor_status['status'], '⚪')
-            st.metric("Status", f"{status_emoji} {monitor_status['status'].title()}")
-            st.metric("Monitored Stocks", monitor_status['monitored_stocks_count'])
-            st.metric("Check Interval", f"{monitor_status['check_interval']} seconds")
-            
-            if monitor_status['last_check_time']:
-                st.metric("Last Check", monitor_status['last_check_time'][:19])
-        
-        with col2:
-            st.markdown("**Controls**")
-            
-            if monitor_status['status'] == 'running':
-                if st.button("⏸️ Pause Monitoring", key="pause_monitoring_btn"):
-                    price_monitor.pause_monitoring()
-                    st.success("Monitoring paused!")
-                    st.rerun()
-                if st.button("⏹️ Stop Monitoring", key="stop_monitoring_btn"):
-                    price_monitor.stop_monitoring()
-                    st.success("Monitoring stopped!")
-                    st.rerun()
-            elif monitor_status['status'] == 'paused':
-                if st.button("▶️ Resume Monitoring", key="resume_monitoring_btn"):
-                    price_monitor.resume_monitoring()
-                    st.success("Monitoring resumed!")
-                    st.rerun()
-            else:
-                check_interval = st.number_input("Check Interval (seconds)", 30, 300, 60)
-                if st.button("▶️ Start Monitoring", key="start_monitoring_btn"):
-                    if monitor_status['monitored_stocks_count'] > 0:
-                        price_monitor.start_monitoring(check_interval)
-                        st.success("Monitoring started!")
-                        st.rerun()
-                    else:
-                        st.warning("No stocks in watchlist to monitor!")
-        
-        # Add stocks from watchlist to monitoring
-        if st.session_state.watchlist:
-            st.markdown("**Add Watchlist Stocks to Monitoring**")
-            if st.button("📊 Add All Watchlist Stocks to Monitoring", key="add_watchlist_to_monitoring_btn"):
-                added_count = 0
-                for item in st.session_state.watchlist:
-                    stock_data = {
-                        'symbol': item['symbol'],
-                        'current_price': item['current_price'],
-                        'target_price': item.get('target_price'),
-                        'stop_loss': item.get('stop_loss'),
-                        'entry_price': item.get('entry_price', item['current_price'])
-                    }
-                    if price_monitor.add_stock_to_monitor(stock_data):
-                        added_count += 1
-                
-                st.success(f"✅ Added {added_count} stocks to monitoring!")
-                st.rerun()
-        
-        # Show monitored stocks
-        if monitor_status['monitored_stocks']:
-            st.markdown("**Monitored Stocks**")
-            for symbol in monitor_status['monitored_stocks']:
-                stock_status = price_monitor.get_stock_status(symbol)
-                if stock_status:
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.write(f"**{symbol}**")
-                    with col2:
-                        st.write(f"Price: ₹{stock_status['current_price']:.2f}")
-                    with col3:
-                        if st.button(f"Remove {symbol}", key=f"remove_{symbol}"):
-                            price_monitor.remove_stock_from_monitor(symbol)
-                            st.success(f"Removed {symbol} from monitoring!")
-                            st.rerun()
-    
-    def alert_history_section(self):
-        """Alert history section."""
-        st.subheader("📋 Alert History")
-        
-        email_manager = st.session_state.email_notifications
-        
-        # Alert history controls
-        col1, col2 = st.columns(2)
-        with col1:
-            limit = st.number_input("Show Last N Alerts", 10, 100, 20)
-        with col2:
-            if st.button("🗑️ Clear History", key="clear_history_btn"):
-                if email_manager.clear_alert_history():
-                    st.success("Alert history cleared!")
-                    st.rerun()
-        
-        # Display alert history
-        alert_history = email_manager.get_alert_history(limit)
-        
-        if alert_history:
-            st.markdown("**Recent Alerts**")
-            for alert in alert_history:
-                timestamp = alert['timestamp'][:19]  # Remove microseconds
-                alert_type = alert['alert_type'].replace('_', ' ').title()
-                symbol = alert['symbol']
-                priority = alert['priority'].title()
-                
-                priority_color = {
-                    'Critical': '🔴',
-                    'High': '🟠', 
-                    'Medium': '🟡',
-                    'Low': '🟢'
-                }
-                
-                priority_emoji = priority_color.get(priority, '⚪')
-                
-                st.markdown(f"""
-                <div style="background-color: #2d2d2d; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0;">
-                    <p><strong>{priority_emoji} {alert_type}</strong> - {symbol}</p>
-                    <p><small>Time: {timestamp} | Priority: {priority}</small></p>
-                    <p><small>Subject: {alert.get('subject', 'N/A')}</small></p>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("No alert history available.")
-        
-        # Alert statistics
-        if alert_history:
-            st.markdown("**Alert Statistics**")
-            alert_types = {}
-            priorities = {}
-            
-            for alert in alert_history:
-                alert_type = alert['alert_type']
-                priority = alert['priority']
-                
-                alert_types[alert_type] = alert_types.get(alert_type, 0) + 1
-                priorities[priority] = priorities.get(priority, 0) + 1
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**By Type**")
-                for alert_type, count in alert_types.items():
-                    st.write(f"• {alert_type.replace('_', ' ').title()}: {count}")
-            
-            with col2:
-                st.markdown("**By Priority**")
-                for priority, count in priorities.items():
-                    st.write(f"• {priority.title()}: {count}")
-    
-    def display_saved_recommendations(self):
-        """Display saved recommendations."""
-        st.subheader("📊 Saved Recommendations")
-        
-        data_persistence = st.session_state.data_persistence
-        available_dates = data_persistence.get_available_dates()
-        
-        if not available_dates:
-            st.info("No saved recommendations found.")
-            return
-        
-        # Date selector
-        selected_date = st.selectbox(
-            "Select Date",
-            available_dates,
-            key="saved_rec_date_selector"
-        )
-        
-        if selected_date:
-            recommendations = data_persistence.get_recommendations_by_date(selected_date)
-            
-            if recommendations:
-                st.success(f"Found {len(recommendations)} recommendations for {selected_date}")
-                
-                # Header row
-                col1, col2, col3, col4, col5, col6 = st.columns([1.5, 1.5, 1, 1, 1, 0.8])
-                with col1:
-                    st.markdown("**Stock**")
-                with col2:
-                    st.markdown("**CMP**")
-                with col3:
-                    st.markdown("**Target**")
-                with col4:
-                    st.markdown("**Stop Loss**")
-                with col5:
-                    st.markdown("**Confidence**")
-                with col6:
-                    st.markdown("**Details**")
-                
-                st.markdown("---")
-                
-                # Display each recommendation
-                for i, rec in enumerate(recommendations):
-                    ExpandableUI.display_recommendation_row(rec, i)
-            else:
-                st.warning(f"No recommendations found for {selected_date}")
-    
-    def display_saved_watchlist(self):
-        """Display saved watchlist."""
-        st.subheader("👀 Saved Watchlist")
-        
-        data_persistence = st.session_state.data_persistence
-        watchlist = data_persistence.get_watchlist()
-        
-        if not watchlist:
-            st.info("No saved watchlist found.")
-            return
-        
-        st.success(f"Found {len(watchlist)} watchlist items")
-        
-        # Header row
-        col1, col2, col3, col4, col5, col6, col7 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8])
-        with col1:
-            st.markdown("**Stock**")
-        with col2:
-            st.markdown("**Entry Price**")
-        with col3:
-            st.markdown("**CMP**")
-        with col4:
-            st.markdown("**P&L**")
-        with col5:
-            st.markdown("**Date Added**")
-        with col6:
-            st.markdown("**Status**")
-        with col7:
-            st.markdown("**Details**")
-        
-        st.markdown("---")
-        
-        # Display each watchlist item
-        for i, item in enumerate(watchlist):
-            ExpandableUI.display_watchlist_row(item, i)
-    
-    def display_saved_swing_strategies(self):
-        """Display saved swing strategies."""
-        st.subheader("📈 Saved Swing Strategies")
-        
-        data_persistence = st.session_state.data_persistence
-        available_dates = data_persistence.get_available_dates()
-        
-        if not available_dates:
-            st.info("No saved swing strategies found.")
-            return
-        
-        # Date selector
-        selected_date = st.selectbox(
-            "Select Date",
-            available_dates,
-            key="saved_swing_date_selector"
-        )
-        
-        if selected_date:
-            strategies = data_persistence.get_swing_strategies_by_date(selected_date)
-            
-            if strategies:
-                st.success(f"Found {len(strategies)} swing strategies for {selected_date}")
-                
-                # Header row with consistent column widths
-                col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 1, 1, 0.8, 0.8])
-                with col1:
-                    st.markdown("**Stock**")
-                with col2:
-                    st.markdown("**CMP**")
-                with col3:
-                    st.markdown("**Take Profit**")
-                with col4:
-                    st.markdown("**Stop Loss**")
-                with col5:
-                    st.markdown("**Days Left**")
-                with col6:
-                    st.markdown("**Status**")
-                with col7:
-                    st.markdown("**Actions**")
-                with col8:
-                    st.markdown("**Details**")
-                
-                st.markdown("---")
-                
-                # Display each strategy
-                for i, strategy in enumerate(strategies):
-                    ExpandableUI.display_swing_strategy_row(strategy, i)
-            else:
-                st.warning(f"No swing strategies found for {selected_date}")
-    
-    
+
     def fetch_news(self):
         """Fetch and display filtered Indian news articles."""
         with st.spinner("📰 Fetching and filtering Indian news..."):

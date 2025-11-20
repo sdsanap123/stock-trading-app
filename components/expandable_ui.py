@@ -662,6 +662,7 @@ class ExpandableUI:
             swing_plan = rec.get('swing_plan', {})
             technical_data = rec.get('technical_data', {})
             groq_analysis = rec.get('groq_analysis', {})
+            gemini_analysis = rec.get('gemini_analysis', {})
             
             # Calculate risk-reward ratio
             risk_reward_html = ""
@@ -753,19 +754,61 @@ class ExpandableUI:
                 </div>
                 """
             
-            # Groq Analysis
-            if groq_analysis and groq_analysis.get('status') == 'success':
+            # AI Analysis (Groq and/or Gemini)
+            has_groq = groq_analysis and groq_analysis.get('status') == 'success'
+            has_gemini = gemini_analysis and gemini_analysis.get('status') == 'success'
+
+            if has_groq or has_gemini:
+                providers = []
+                if has_groq:
+                    providers.append("Groq AI")
+                if has_gemini:
+                    providers.append("Gemini AI")
+                providers_text = " and ".join(providers)
+
                 html_content += """
                 <div style="margin-bottom: 20px;">
-                    <h3>🤖 Groq AI Analysis</h3>
+                    <h3>🤖 AI Analysis</h3>
                     <div class="metric">
                 """
-                html_content += f"""
-                        <p><strong>Sentiment:</strong> {groq_analysis.get('sentiment_label', 'N/A')}</p>
-                        <p><strong>Impact Level:</strong> {groq_analysis.get('impact_level', 'N/A')}</p>
-                        <p><strong>Price Impact:</strong> {groq_analysis.get('price_impact', 'N/A')}</p>
-                        <p><strong>Swing Potential:</strong> {groq_analysis.get('swing_trading_potential', 'N/A')}</p>
-                """
+
+                # High-level fields from Groq
+                if has_groq:
+                    sentiment_label = groq_analysis.get('sentiment_label', 'N/A')
+                    impact_level = groq_analysis.get('impact_level', 'N/A')
+                    price_impact = groq_analysis.get('price_impact', 'N/A')
+                    swing_potential = groq_analysis.get('swing_trading_potential', 'N/A')
+
+                    html_content += f"""
+                        <p><strong>Primary AI:</strong> {providers_text}</p>
+                        <p><strong>Sentiment:</strong> {sentiment_label}</p>
+                        <p><strong>Impact Level:</strong> {impact_level}</p>
+                        <p><strong>Price Impact:</strong> {price_impact}</p>
+                        <p><strong>Swing Potential:</strong> {swing_potential}</p>
+                    """
+
+                    # Optional news snippet used for sentiment (if present)
+                    news_snippet = (
+                        groq_analysis.get('news_snippet')
+                        or groq_analysis.get('headline')
+                        or groq_analysis.get('summary')
+                        or ""
+                    )
+                    if news_snippet:
+                        html_content += f"""
+                        <p><strong>News context:</strong> {news_snippet}</p>
+                        """
+
+                # Additional Gemini summary if available
+                if has_gemini:
+                    gem_data = gemini_analysis.get('analysis', {})
+                    gem_score = gem_data.get('overall_score', 0)
+                    gem_conf = gem_data.get('confidence', 0)
+                    gem_reco = gem_data.get('recommendation', 'N/A')
+                    html_content += f"""
+                        <p><strong>Gemini View:</strong> {gem_reco} (score {gem_score:.2f}, confidence {gem_conf:.1%})</p>
+                    """
+
                 html_content += """
                     </div>
                 </div>
@@ -908,7 +951,7 @@ class ExpandableUI:
     
     @staticmethod
     def display_watchlist_row(item: Dict, index: int, show_actions: bool = True) -> bool:
-        """Display a watchlist item in an expandable row format."""
+        """Display a watchlist item in an expandable row format with selection checkbox."""
         try:
             # Add compact styling
             st.markdown("""
@@ -972,23 +1015,32 @@ class ExpandableUI:
                 formatted_date = added_date[:10] if added_date else 'N/A'
             
             # Create main row - more compact with headers
+            # Column layout (11 columns): [Select] [Stock] [Date] [Current] [Entry] [S/L] [P&L] [Target] [Status] [Details] [X]
             if index == 0:
                 # Add header row with adjusted column widths to match data rows
-                header_cols = st.columns([1.2, 0.8, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.6, 0.5])
-                with header_cols[0]: st.markdown("**Stock**")
-                with header_cols[1]: st.markdown("<div style='text-align: center;'>**Date**</div>", unsafe_allow_html=True)
-                with header_cols[2]: st.markdown("<div style='text-align: right;'>**Current**</div>", unsafe_allow_html=True)
-                with header_cols[3]: st.markdown("<div style='text-align: right;'>**Entry**</div>", unsafe_allow_html=True)
-                with header_cols[4]: st.markdown("<div style='text-align: right;'>**S/L**</div>", unsafe_allow_html=True)
-                with header_cols[5]: st.markdown("<div style='text-align: right;'>**P&L**</div>", unsafe_allow_html=True)
-                with header_cols[6]: st.markdown("<div style='text-align: right;'>**Target**</div>", unsafe_allow_html=True)
-                with header_cols[7]: st.markdown("<div style='text-align: center;'>**Status**</div>", unsafe_allow_html=True)
-                with header_cols[8]: st.markdown("**Actions**")
-                with header_cols[9]: st.markdown("**X**")
+                header_cols = st.columns([0.5, 1.2, 0.8, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.6, 0.5])
+                with header_cols[0]:
+                    st.markdown("**✔**")
+                with header_cols[1]: st.markdown("**Stock**")
+                with header_cols[2]: st.markdown("<div style='text-align: center;'>**Date**</div>", unsafe_allow_html=True)
+                with header_cols[3]: st.markdown("<div style='text-align: right;'>**Current**</div>", unsafe_allow_html=True)
+                with header_cols[4]: st.markdown("<div style='text-align: right;'>**Entry**</div>", unsafe_allow_html=True)
+                with header_cols[5]: st.markdown("<div style='text-align: right;'>**S/L**</div>", unsafe_allow_html=True)
+                with header_cols[6]: st.markdown("<div style='text-align: right;'>**P&L**</div>", unsafe_allow_html=True)
+                with header_cols[7]: st.markdown("<div style='text-align: right;'>**Target**</div>", unsafe_allow_html=True)
+                with header_cols[8]: st.markdown("<div style='text-align: center;'>**Status**</div>", unsafe_allow_html=True)
+                with header_cols[9]: st.markdown("**Details**")
+                with header_cols[10]: st.markdown("**X**")
                 st.markdown("---")
             
-            # Data row with consistent column widths
-            col1, col2, col3, col4, col5, col6, col7, col8, col9, col10 = st.columns([1.2, 0.8, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.6, 0.5])
+            # Data row with consistent column widths (including selection checkbox)
+            col_sel, col1, col2, col3, col4, col5, col6, col7, col8, col9, col10 = st.columns([0.5, 1.2, 0.8, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.6, 0.5])
+            
+            # Selection checkbox (no rerun, just sets session_state)
+            with col_sel:
+                select_key = f"watchlist_select_{symbol}"
+                current_val = st.session_state.get(select_key, False)
+                st.checkbox("", key=select_key, value=current_val)
             
             with col1:
                 st.markdown(f'<div class="compact-row">', unsafe_allow_html=True)
