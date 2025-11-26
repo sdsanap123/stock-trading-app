@@ -110,68 +110,6 @@ class NewsAnalyzer:
         self._name_to_symbol_cache = {}
         self._populate_caches()
         
-    def _populate_caches(self):
-        """Populate in-memory caches for faster lookups."""
-        for symbol in self.indian_stocks:
-            company = self.company_db.get_company_by_symbol(symbol)
-            if company:
-                self._symbol_cache[symbol] = company
-                self._name_to_symbol_cache[company.get('name', '').lower()] = symbol
-    
-    def get_symbol_from_name(self, name: str) -> Optional[str]:
-        """
-        Get stock symbol from company name.
-        
-        Args:
-            name: Company name to look up
-            
-        Returns:
-            str: Stock symbol if found, None otherwise
-        """
-        if not name:
-            return None
-            
-        # Check cache first
-        name_lower = name.lower().strip()
-        if name_lower in self._name_to_symbol_cache:
-            return self._name_to_symbol_cache[name_lower]
-            
-        # Try to find a matching company
-        results = self.company_db.search_companies(name, limit=1)
-        if results:
-            symbol = results[0].get('symbol')
-            if symbol:
-                # Update cache
-                self._name_to_symbol_cache[name_lower] = symbol
-                return symbol
-                
-        return None
-        
-    def get_company_by_symbol(self, symbol: str) -> Optional[Dict]:
-        """
-        Get company details by symbol with caching.
-        
-        Args:
-            symbol: Stock symbol to look up
-            
-        Returns:
-            dict: Company details or None if not found
-        """
-        if not symbol:
-            return None
-            
-        symbol_upper = symbol.upper().strip()
-        
-        # Check cache first
-        if symbol_upper in self._symbol_cache:
-            return self._symbol_cache[symbol_upper]
-            
-        # Query database if not in cache
-        company = self.company_db.get_company_by_symbol(symbol_upper)
-        if company:
-            self._symbol_cache[symbol_upper] = company
-            
-        return company
         # Set a user agent to prevent 403 Forbidden errors
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -239,14 +177,73 @@ class NewsAnalyzer:
             'maharastra', 'karnataka', 'tamil nadu', 'west bengal', 'delhi ncr'
         ]
         
-        # Load Indian stock symbols
-        self.indian_stocks = self._load_indian_stock_symbols()
-        logger.info(f"News Analyzer initialized with {len(self.indian_stocks)} Indian stock symbols")
-        
         # Cache for storing recommendations
         self._recommendations_cache = None
         self._last_update_time = None
         self._cache_duration = 3600  # 1 hour cache duration
+        
+    def _populate_caches(self):
+        """Populate in-memory caches for faster lookups."""
+        for symbol in self.indian_stocks:
+            company = self.company_db.get_company_by_symbol(symbol)
+            if company:
+                self._symbol_cache[symbol] = company
+                self._name_to_symbol_cache[company.get('name', '').lower()] = symbol
+    
+    def get_symbol_from_name(self, name: str) -> Optional[str]:
+        """
+        Get stock symbol from company name.
+        
+        Args:
+            name: Company name to look up
+            
+        Returns:
+            str: Stock symbol if found, None otherwise
+        """
+        if not name:
+            return None
+            
+        # Check cache first
+        name_lower = name.lower().strip()
+        if name_lower in self._name_to_symbol_cache:
+            return self._name_to_symbol_cache[name_lower]
+            
+        # Try to find a matching company
+        results = self.company_db.search_companies(name, limit=1)
+        if results:
+            symbol = results[0].get('symbol')
+            if symbol:
+                # Update cache
+                self._name_to_symbol_cache[name_lower] = symbol
+                return symbol
+                
+        return None
+        
+    def get_company_by_symbol(self, symbol: str) -> Optional[Dict]:
+        """
+        Get company details by symbol with caching.
+        
+        Args:
+            symbol: Stock symbol to look up
+            
+        Returns:
+            dict: Company details or None if not found
+        """
+        if not symbol:
+            return None
+            
+        symbol_upper = symbol.upper().strip()
+        
+        # Check cache first
+        if symbol_upper in self._symbol_cache:
+            return self._symbol_cache[symbol_upper]
+            
+        # Query database if not in cache
+        company = self.company_db.get_company_by_symbol(symbol_upper)
+        if company:
+            self._symbol_cache[symbol_upper] = company
+            
+        return company
     
     def _load_indian_stock_symbols(self) -> Set[str]:
         """Load Indian stock symbols from EQUITY_L.csv"""
