@@ -31,14 +31,67 @@ class NewsAnalyzer:
     
     def __init__(self):
         self.news_sources = [
+            # Major Indian Financial News Portals
             'https://www.moneycontrol.com/rss/latestnews.xml',
+            'https://www.moneycontrol.com/rss/marketreports.xml',
+            'https://www.moneycontrol.com/rss/economy.xml',
+            
+            # Business Standard
             'https://www.business-standard.com/rss/markets-106.rss',
+            'https://www.business-standard.com/rss/economy-107.rss',
+            'https://www.business-standard.com/rss/companies-102.rss',
+            
+            # Mint (HT Media)
             'https://www.livemint.com/rss/markets',
+            'https://www.livemint.com/rss/economy',
+            'https://www.livemint.com/rss/companies',
+            'https://www.livemint.com/rss/industry',
+            
+            # Business Today
             'https://www.businesstoday.in/feeds/rssfeeds/section/stockstrends',
+            'https://www.businesstoday.in/feeds/rssfeeds/section/economy',
+            'https://www.businesstoday.in/feeds/rssfeeds/section/companies',
+            
+            # Economic Times
+            'https://economictimes.indiatimes.com/rssfeeds/1977021501.cms',  # Markets
+            'https://economictimes.indiatimes.com/rssfeeds/13358311.cms',   # Economy
+            'https://economictimes.indiatimes.com/rssfeeds/1096080664.cms', # Companies
+            
+            # Financial Express
+            'https://www.financialexpress.com/rssfeeds/market/',
+            'https://www.financialexpress.com/rssfeeds/economy/',
+            'https://www.financialexpress.com/rssfeeds/industry/',
+            
+            # News18 Business
+            'https://www.news18.com/rss/business.xml',
+            'https://www.news18.com/rss/economy.xml',
+            
+            # NDTV Profit
+            'https://www.ndtvprofit.com/rss/feed',
+            
+            # Zee Business
+            'https://www.zeebiz.com/rss/market.xml',
+            'https://www.zeebiz.com/rss/economy.xml',
+            
+            # Bloomberg Quint
+            'https://www.bqprime.com/rss',
+            
+            # CNBC TV18
+            'https://www.cnbctv18.com/rss/market.xml',
+            
+            # Other specialized sources
             'https://www.money9.com/feed/',
             'https://www.tradebrains.in/blog/feed/',
             'https://www.equitypandit.com/category/latest-news/feed/',
-            'https://www.mind2markets.com/feed/'
+            'https://www.mind2markets.com/feed/',
+            
+            # Regulatory and Government Sources
+            'https://www.rbi.org.in/scripts/BS_ViewRSS.aspx',
+            'https://www.sebi.gov.in/sebi_rss.xml',
+            
+            # Stock Exchange Feeds
+            'https://www.nseindia.com/content/rss/marketnews.xml',
+            'https://www.bseindia.com/rss/bserss.xml'
         ]
         # Initialize company database
         self.company_db = CompanyDatabase('data/company_database.db')
