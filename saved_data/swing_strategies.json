@@ -16,7 +16,8 @@
             "expected_exit_date": "2025-10-24T10:07:51.319115",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-17T10:07:56.406440"
+            "created_at": "2025-10-17T10:07:56.406440",
+            "saved_date": "2025-10-17"
         },
         {
             "symbol": "WIPRO",
@@ -34,7 +35,8 @@
             "expected_exit_date": "2025-10-24T10:07:53.786939",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-17T10:07:56.406447"
+            "created_at": "2025-10-17T10:07:56.406447",
+            "saved_date": "2025-10-17"
         },
         {
             "symbol": "LT",
@@ -52,7 +54,8 @@
             "expected_exit_date": "2025-10-24T10:07:56.395308",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-17T10:07:56.406452"
+            "created_at": "2025-10-17T10:07:56.406452",
+            "saved_date": "2025-10-17"
         },
         {
             "symbol": "BEL",
@@ -70,7 +73,8 @@
             "expected_exit_date": "2025-10-24T10:07:56.396662",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-17T10:07:56.406456"
+            "created_at": "2025-10-17T10:07:56.406456",
+            "saved_date": "2025-10-17"
         }
     ],
     "2025-10-28": [
@@ -91,7 +95,8 @@
             "holding_period_days": 7,
             "status": "ACTIVE",
             "created_at": "2025-10-28T10:07:12.209527",
-            "current_price": 0
+            "current_price": 0,
+            "saved_date": "2025-10-28"
         },
         {
             "symbol": "HINDALCO",
@@ -110,7 +115,8 @@
             "holding_period_days": 7,
             "status": "ACTIVE",
             "created_at": "2025-10-28T10:07:12.209536",
-            "current_price": 0
+            "current_price": 0,
+            "saved_date": "2025-10-28"
         },
         {
             "symbol": "NTPC",
@@ -129,7 +135,8 @@
             "holding_period_days": 7,
             "status": "ACTIVE",
             "created_at": "2025-10-28T10:07:12.209540",
-            "current_price": 0
+            "current_price": 0,
+            "saved_date": "2025-10-28"
         },
         {
             "symbol": "SBIN",
@@ -148,7 +155,8 @@
             "holding_period_days": 7,
             "status": "ACTIVE",
             "created_at": "2025-10-28T10:15:38.553655",
-            "current_price": 0
+            "current_price": 0,
+            "saved_date": "2025-10-28"
         },
         {
             "symbol": "HCLTECH",
@@ -167,7 +175,8 @@
             "holding_period_days": 7,
             "status": "ACTIVE",
             "created_at": "2025-10-28T10:15:38.553666",
-            "current_price": 0
+            "current_price": 0,
+            "saved_date": "2025-10-28"
         },
         {
             "symbol": "MARUTI",
@@ -185,7 +194,8 @@
             "expected_exit_date": "2025-11-04T10:52:46.013367",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-28T10:52:46.025043"
+            "created_at": "2025-10-28T10:52:46.025043",
+            "saved_date": "2025-10-28"
         }
     ],
     "2025-10-30": [
@@ -205,7 +215,8 @@
             "expected_exit_date": "2025-11-06T07:44:04.514159",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-30T07:44:07.585023"
+            "created_at": "2025-10-30T07:44:07.585023",
+            "saved_date": "2025-10-30"
         },
         {
             "symbol": "IRCON",
@@ -223,7 +234,8 @@
             "expected_exit_date": "2025-11-06T07:44:07.551764",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-30T07:44:07.585029"
+            "created_at": "2025-10-30T07:44:07.585029",
+            "saved_date": "2025-10-30"
         },
         {
             "symbol": "HINDUNILVR",
@@ -241,7 +253,8 @@
             "expected_exit_date": "2025-11-06T08:11:38.248494",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-30T08:11:46.833404"
+            "created_at": "2025-10-30T08:11:46.833404",
+            "saved_date": "2025-10-30"
         },
         {
             "symbol": "INFY",
@@ -259,7 +272,8 @@
             "expected_exit_date": "2025-11-06T08:11:41.163843",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-30T08:11:46.833409"
+            "created_at": "2025-10-30T08:11:46.833409",
+            "saved_date": "2025-10-30"
         },
         {
             "symbol": "ICICIBANK",
@@ -277,7 +291,8 @@
             "expected_exit_date": "2025-11-06T08:11:46.806985",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-30T08:11:46.833412"
+            "created_at": "2025-10-30T08:11:46.833412",
+            "saved_date": "2025-10-30"
         }
     ],
     "2025-10-31": [
@@ -298,7 +313,8 @@
             "holding_period_days": 7,
             "status": "ACTIVE",
             "created_at": "2025-10-31T08:18:12.255442",
-            "current_price": 0
+            "current_price": 0,
+            "saved_date": "2025-10-31"
         },
         {
             "symbol": "IIFL",
@@ -316,7 +332,8 @@
             "expected_exit_date": "2025-11-07T09:10:28.093301",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-31T09:10:29.960268"
+            "created_at": "2025-10-31T09:10:29.960268",
+            "saved_date": "2025-10-31"
         },
         {
             "symbol": "VEDL",
@@ -334,7 +351,8 @@
             "expected_exit_date": "2025-11-07T09:12:54.525626",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-31T09:13:19.093695"
+            "created_at": "2025-10-31T09:13:19.093695",
+            "saved_date": "2025-10-31"
         },
         {
             "symbol": "BPCL",
@@ -352,7 +370,8 @@
             "expected_exit_date": "2025-11-07T09:12:59.070552",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-31T09:13:19.093701"
+            "created_at": "2025-10-31T09:13:19.093701",
+            "saved_date": "2025-10-31"
         },
         {
             "symbol": "GAIL",
@@ -370,7 +389,8 @@
             "expected_exit_date": "2025-11-07T09:13:03.554438",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-31T09:13:19.093706"
+            "created_at": "2025-10-31T09:13:19.093706",
+            "saved_date": "2025-10-31"
         },
         {
             "symbol": "JKTYRE",
@@ -388,7 +408,8 @@
             "expected_exit_date": "2025-11-07T09:13:06.883070",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-31T09:13:19.093709"
+            "created_at": "2025-10-31T09:13:19.093709",
+            "saved_date": "2025-10-31"
         },
         {
             "symbol": "BSL",
@@ -406,7 +427,8 @@
             "expected_exit_date": "2025-11-07T09:13:13.365757",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-31T09:13:19.093712"
+            "created_at": "2025-10-31T09:13:19.093712",
+            "saved_date": "2025-10-31"
         },
         {
             "symbol": "WIPRO",
@@ -424,7 +446,8 @@
             "expected_exit_date": "2025-11-07T09:13:19.047188",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-10-31T09:13:19.093716"
+            "created_at": "2025-10-31T09:13:19.093716",
+            "saved_date": "2025-10-31"
         }
     ],
     "2025-11-19": [
@@ -444,7 +467,8 @@
             "expected_exit_date": "2025-11-26T10:40:22.717474",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-11-19T10:40:35.700854"
+            "created_at": "2025-11-19T10:40:35.700854",
+            "saved_date": "2025-11-19"
         },
         {
             "symbol": "AZAD",
@@ -462,7 +486,8 @@
             "expected_exit_date": "2025-11-26T10:40:25.536662",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-11-19T10:40:35.700854"
+            "created_at": "2025-11-19T10:40:35.700854",
+            "saved_date": "2025-11-19"
         },
         {
             "symbol": "NIRAJ",
@@ -480,7 +505,8 @@
             "expected_exit_date": "2025-11-26T10:40:31.353596",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-11-19T10:40:35.700854"
+            "created_at": "2025-11-19T10:40:35.700854",
+            "saved_date": "2025-11-19"
         },
         {
             "symbol": "MONARCH",
@@ -498,7 +524,8 @@
             "expected_exit_date": "2025-11-26T10:40:35.678544",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-11-19T10:40:35.700854"
+            "created_at": "2025-11-19T10:40:35.700854",
+            "saved_date": "2025-11-19"
         }
     ],
     "2025-11-20": [
@@ -518,7 +545,8 @@
             "expected_exit_date": "",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-11-20T08:14:04.697391"
+            "created_at": "2025-11-20T08:14:04.697391",
+            "saved_date": "2025-11-20"
         },
         {
             "symbol": "BEL",
@@ -536,7 +564,8 @@
             "expected_exit_date": "2025-11-27T08:14:00.023507",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-11-20T08:14:04.697391"
+            "created_at": "2025-11-20T08:14:04.697391",
+            "saved_date": "2025-11-20"
         },
         {
             "symbol": "ICICIBANK",
@@ -554,7 +583,8 @@
             "expected_exit_date": "",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-11-20T08:14:04.697391"
+            "created_at": "2025-11-20T08:14:04.697391",
+            "saved_date": "2025-11-20"
         },
         {
             "symbol": "NTPC",
@@ -572,7 +602,8 @@
             "expected_exit_date": "",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-11-20T08:14:04.697391"
+            "created_at": "2025-11-20T08:14:04.697391",
+            "saved_date": "2025-11-20"
         },
         {
             "symbol": "ADANIENT",
@@ -590,7 +621,8 @@
             "expected_exit_date": "2025-11-27T08:22:12.905482",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-11-20T08:22:14.986505"
+            "created_at": "2025-11-20T08:22:14.986505",
+            "saved_date": "2025-11-20"
         },
         {
             "symbol": "TATAPOWER",
@@ -608,7 +640,8 @@
             "expected_exit_date": "2025-11-27T08:24:05.009134",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-11-20T08:24:07.780671"
+            "created_at": "2025-11-20T08:24:07.780671",
+            "saved_date": "2025-11-20"
         },
         {
             "symbol": "HCLTECH",
@@ -626,7 +659,8 @@
             "expected_exit_date": "2025-11-27T08:24:07.759532",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-11-20T08:24:07.780671"
+            "created_at": "2025-11-20T08:24:07.780671",
+            "saved_date": "2025-11-20"
         },
         {
             "symbol": "POWERGRID",
@@ -644,7 +678,64 @@
             "expected_exit_date": "2025-11-27T08:33:26.431147",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-11-20T08:33:26.448592"
+            "created_at": "2025-11-20T08:33:26.448592",
+            "saved_date": "2025-11-20"
+        }
+    ],
+    "2025-12-01": [
+        {
+            "symbol": "ITC",
+            "company_name": "",
+            "strategy_name": "7-Day Adaptive Swing Strategy",
+            "entry_price": 404.25,
+            "stop_loss": 390.10125,
+            "take_profit": 414.35625,
+            "position_size": 27,
+            "investment_amount": 10914.75,
+            "risk_amount": 382.0162500000002,
+            "risk_reward_ratio": 0.7142857142857132,
+            "confidence": 63.150000000000006,
+            "entry_date": "2025-12-01T08:29:56.250509",
+            "expected_exit_date": "2025-12-08T08:29:56.250509",
+            "holding_period_days": 7,
+            "status": "ACTIVE",
+            "created_at": "2025-12-01T08:30:02.452245"
+        },
+        {
+            "symbol": "HDFCBANK",
+            "company_name": "",
+            "strategy_name": "7-Day Adaptive Swing Strategy",
+            "entry_price": 1007.5999755859375,
+            "stop_loss": 972.3339764404296,
+            "take_profit": 1032.789974975586,
+            "position_size": 10,
+            "investment_amount": 10075.999755859375,
+            "risk_amount": 352.6599914550786,
+            "risk_reward_ratio": 0.714285714285712,
+            "confidence": 67.55000000000001,
+            "entry_date": "2025-12-01T08:29:58.905153",
+            "expected_exit_date": "2025-12-08T08:29:58.905153",
+            "holding_period_days": 7,
+            "status": "ACTIVE",
+            "created_at": "2025-12-01T08:30:02.452245"
+        },
+        {
+            "symbol": "NCC",
+            "company_name": "",
+            "strategy_name": "7-Day Adaptive Swing Strategy",
+            "entry_price": 171.41000366210938,
+            "stop_loss": 165.41065353393554,
+            "take_profit": 175.6952537536621,
+            "position_size": 64,
+            "investment_amount": 10970.240234375,
+            "risk_amount": 383.95840820312515,
+            "risk_reward_ratio": 0.7142857142857102,
+            "confidence": 61.451998236331576,
+            "entry_date": "2025-12-01T08:30:02.185222",
+            "expected_exit_date": "2025-12-08T08:30:02.185222",
+            "holding_period_days": 7,
+            "status": "ACTIVE",
+            "created_at": "2025-12-01T08:30:02.452245"
         }
     ]
 }
