@@ -311,46 +311,72 @@ class StreamlitTradingApp:
     def initialize_components(self):
         """Initialize all analysis components."""
         try:
-            # Initialize AI components
-            self.ai_engine = AIRecommendationEngine()
-            self.technical_analyzer = TechnicalAnalyzer()
-            self.news_analyzer = NewsAnalyzer()
-            self.groq_analyzer = GroqNewsAnalyzer()
-            self.gemini_analyzer = GeminiAIAnalyzer()
-            self.watchlist_manager = WatchlistManager()
+            # Initialize or reuse AI components from session state
+            if 'ai_engine' not in st.session_state:
+                st.session_state.ai_engine = AIRecommendationEngine()
+            self.ai_engine = st.session_state.ai_engine
+
+            if 'technical_analyzer' not in st.session_state:
+                st.session_state.technical_analyzer = TechnicalAnalyzer()
+            self.technical_analyzer = st.session_state.technical_analyzer
+
+            if 'news_analyzer' not in st.session_state:
+                st.session_state.news_analyzer = NewsAnalyzer()
+            self.news_analyzer = st.session_state.news_analyzer
+
+            if 'groq_analyzer' not in st.session_state:
+                st.session_state.groq_analyzer = GroqNewsAnalyzer()
+            self.groq_analyzer = st.session_state.groq_analyzer
+
+            if 'gemini_analyzer' not in st.session_state:
+                st.session_state.gemini_analyzer = GeminiAIAnalyzer()
+            self.gemini_analyzer = st.session_state.gemini_analyzer
+
+            if 'watchlist_manager' not in st.session_state:
+                st.session_state.watchlist_manager = WatchlistManager()
+            self.watchlist_manager = st.session_state.watchlist_manager
+
+            # Initialize or reuse learning system
+            if 'recommendation_tracker' not in st.session_state:
+                try:
+                    st.session_state.recommendation_tracker = RecommendationTracker()
+                    st.session_state.learning_available = True
+                except:
+                    st.session_state.recommendation_tracker = None
+                    st.session_state.learning_available = False
+            self.recommendation_tracker = st.session_state.recommendation_tracker
+
+            # Initialize or reuse Firebase integration
+            if 'firebase_sync' not in st.session_state:
+                try:
+                    st.session_state.firebase_sync = FirebaseSync('firebase_config.json')
+                    st.session_state.firebase_available = st.session_state.firebase_sync.initialized
+                except:
+                    st.session_state.firebase_sync = None
+                    st.session_state.firebase_available = False
+            self.firebase_sync = st.session_state.firebase_sync
+
+            # Initialize API keys in analyzers (only once per session)
+            if not st.session_state.get('api_keys_initialized', False):
+                self._initialize_api_keys()
+                st.session_state.api_keys_initialized = True
             
-            # Initialize learning system
-            try:
-                self.recommendation_tracker = RecommendationTracker()
-                st.session_state.learning_available = True
-            except:
-                st.session_state.learning_available = False
-            
-            # Initialize Firebase
-            try:
-                self.firebase_sync = FirebaseSync('firebase_config.json')
-                st.session_state.firebase_available = self.firebase_sync.initialized
-            except:
-                st.session_state.firebase_available = False
-            
-            # Initialize API keys in analyzers
-            self._initialize_api_keys()
-            
-            # Start scheduled analysis
-            if hasattr(self, 'scheduled_analysis') and st.session_state.get('scheduled_analysis'):
-                st.session_state.scheduled_analysis.start_scheduler()
+            # Start scheduled analysis only once per session
+            self.scheduled_analysis = st.session_state.get('scheduled_analysis')
+            if self.scheduled_analysis and not st.session_state.get('scheduler_started', False):
+                self.scheduled_analysis.start_scheduler()
+                st.session_state.scheduler_started = True
                 logger.info("Scheduled analysis started")
             
-            logger.info("All components initialized successfully")
+            # Log overall initialization only on first successful setup
+            if not st.session_state.get('components_initialized', False):
+                logger.info("All components initialized successfully")
+                st.session_state.components_initialized = True
             
         except Exception as e:
             logger.error(f"Error initializing components: {str(e)}")
             st.error(f"Error initializing components: {str(e)}")
 
-    @property
-    def fundamental_analyzer(self):
-        """Return the analyzer instance owned by the AI engine."""
-        return getattr(self.ai_engine, 'fundamental_analyzer', None)
 
     
     def _initialize_api_keys(self):
@@ -1786,6 +1812,43 @@ class StreamlitTradingApp:
 
                 st.markdown("<hr style='margin: 0.2rem 0;'/>", unsafe_allow_html=True)
     
+    def display_saved_watchlist(self):
+        """Display saved watchlist items from persistent storage."""
+        data_persistence = st.session_state.data_persistence
+        try:
+            saved_watchlist = data_persistence.get_watchlist()
+        except Exception as e:
+            logger.error(f"Error loading saved watchlist: {str(e)}")
+            st.error("Failed to load saved watchlist from storage.")
+            return
+        
+        if not saved_watchlist:
+            st.info("No saved watchlist items found in storage.")
+            return
+        
+        st.subheader(f"📁 Saved Watchlist Items ({len(saved_watchlist)} stocks)")
+        
+        # Simple tabular display of saved items
+        for item in saved_watchlist:
+            symbol = item.get('symbol', 'N/A')
+            company_name = item.get('company_name', '')
+            entry_price = item.get('entry_price', 0)
+            current_price = item.get('current_price', 0)
+            status = item.get('status', 'ACTIVE')
+            added_date = item.get('added_date', '')
+            
+            with st.container():
+                col1, col2, col3, col4, col5 = st.columns([1.5, 2, 1, 1, 1])
+                col1.write(symbol)
+                col2.write(company_name or "-")
+                col3.write(f"₹{entry_price:.2f}")
+                col4.write(f"₹{current_price:.2f}" if current_price else "-")
+                col5.write(status)
+                if added_date:
+                    st.caption(f"Added: {added_date}")
+            
+            st.markdown("---")
+    
     def watchlist_tab(self):
         """Watchlist tab."""
         st.header("👀 Watchlist Management")
@@ -2487,13 +2550,13 @@ class StreamlitTradingApp:
         result = st.session_state.manual_analysis_result
         symbol = result['symbol']
         recommendation = result['recommendation']
-        
+
         st.subheader(f"📊 Analysis Results for {symbol}")
-        
+
         # Recommendation
         rec_class = f"recommendation-{recommendation['action'].lower()}"
         rec_emoji = "📈" if recommendation['action'] == "BUY" else "📉" if recommendation['action'] == "SELL" else "➡️"
-        
+
         st.markdown(f"""
         <div class="metric-card">
             <h3>{rec_emoji} {recommendation['action']}</h3>
@@ -2503,23 +2566,29 @@ class StreamlitTradingApp:
             <p><strong>Stop Loss:</strong> ₹{recommendation['stop_loss']:.2f}</p>
         </div>
         """, unsafe_allow_html=True)
-        
+
         # Reasoning
         with st.expander("💭 Reasoning"):
             st.markdown(recommendation['reasoning'])
-        
+
         # Add to watchlist button
         if st.button(f"👀 Add {symbol} to Watchlist", key=f"add_to_watchlist_{symbol}"):
             self.add_to_watchlist({
                 'symbol': symbol,
+                'company_name': result['technical_data'].get('company_name', symbol),
                 'current_price': result['technical_data'].get('current_price', 0),
                 'recommendation': recommendation['action'],
                 'confidence': recommendation['confidence'],
-                'target_price': recommendation['target_price'],
-                'stop_loss': recommendation['stop_loss'],
-                'reasoning': recommendation['reasoning']
+                'target_price': recommendation.get('target_price', 0),
+                'stop_loss': recommendation.get('stop_loss', 0),
+                'reasoning': recommendation.get('reasoning', ''),
+                'technical_data': result.get('technical_data', {}),
+                'fundamental_data': result.get('fundamental_data', {}),
+                'groq_analysis': result.get('groq_analysis', {}),
+                'gemini_analysis': result.get('gemini_analysis', {}),
             })
-    
+            st.success(f"✅ Added {symbol} to watchlist")
+
     def add_to_watchlist(self, rec: Dict):
         """Add recommendation to watchlist."""
         try:
@@ -2527,16 +2596,17 @@ class StreamlitTradingApp:
             if not symbol:
                 st.error("Invalid recommendation data")
                 return
-            
+
             # Check if already in watchlist
             for item in st.session_state.watchlist:
                 if item.get('symbol') == symbol:
                     st.warning(f"{symbol} is already in watchlist")
                     return
-            
-            # Add to watchlist
+
+            # Add to watchlist with full recommendation payload
             watchlist_item = {
                 'symbol': symbol,
+                'company_name': rec.get('company_name', ''),
                 'entry_price': rec.get('current_price', 0),
                 'current_price': rec.get('current_price', 0),
                 'target_price': rec.get('target_price', 0),
@@ -2545,32 +2615,29 @@ class StreamlitTradingApp:
                 'confidence': rec.get('confidence', 0),
                 'reasoning': rec.get('reasoning', ''),
                 'added_date': datetime.now().isoformat(),
-                'status': 'ACTIVE'
+                'status': 'ACTIVE',
+                # Store full recommendation so watchlist details match recommendations tab
+                'full_recommendation': rec,
             }
-            
+
             st.session_state.watchlist.append(watchlist_item)
-            
-            # Auto-save watchlist
             self._auto_save_watchlist()
-            
-            st.success(f"✅ Added {symbol} to watchlist")
-            
         except Exception as e:
             st.error(f"❌ Error adding to watchlist: {str(e)}")
-    
+
     def analyze_watchlist_stocks(self):
         """Analyze watchlist stocks for learning."""
         if not st.session_state.watchlist:
             st.error("No stocks in watchlist to analyze")
             return
-        
+
         with st.spinner("🧠 Learning from watchlist performance..."):
             try:
                 analyzed_count = 0
                 total_count = len(st.session_state.watchlist)
-                
+
                 progress_bar = st.progress(0)
-                
+
                 for i, item in enumerate(st.session_state.watchlist):
                     symbol = item.get('symbol')
                     if not symbol:

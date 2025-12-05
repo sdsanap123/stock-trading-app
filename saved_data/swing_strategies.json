@@ -699,7 +699,8 @@
             "expected_exit_date": "2025-12-08T08:29:56.250509",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-12-01T08:30:02.452245"
+            "created_at": "2025-12-01T08:30:02.452245",
+            "saved_date": "2025-12-01"
         },
         {
             "symbol": "HDFCBANK",
@@ -717,7 +718,8 @@
             "expected_exit_date": "2025-12-08T08:29:58.905153",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-12-01T08:30:02.452245"
+            "created_at": "2025-12-01T08:30:02.452245",
+            "saved_date": "2025-12-01"
         },
         {
             "symbol": "NCC",
@@ -735,7 +737,118 @@
             "expected_exit_date": "2025-12-08T08:30:02.185222",
             "holding_period_days": 7,
             "status": "ACTIVE",
-            "created_at": "2025-12-01T08:30:02.452245"
+            "created_at": "2025-12-01T08:30:02.452245",
+            "saved_date": "2025-12-01"
+        }
+    ],
+    "2025-12-05": [
+        {
+            "symbol": "HINDALCO",
+            "company_name": "",
+            "strategy_name": "7-Day Adaptive Swing Strategy",
+            "entry_price": 810.7999877929688,
+            "stop_loss": 782.4219882202149,
+            "take_profit": 831.0699874877929,
+            "position_size": 13,
+            "investment_amount": 10540.399841308594,
+            "risk_amount": 368.9139944458004,
+            "risk_reward_ratio": 0.7142857142857125,
+            "confidence": 74.99999999999999,
+            "entry_date": "2025-12-05T07:23:14.558029",
+            "expected_exit_date": "2025-12-12T07:23:14.558029",
+            "holding_period_days": 7,
+            "status": "ACTIVE",
+            "created_at": "2025-12-05T07:23:34.825695"
+        },
+        {
+            "symbol": "TATASTEEL",
+            "company_name": "",
+            "strategy_name": "7-Day Adaptive Swing Strategy",
+            "entry_price": 166.77000427246094,
+            "stop_loss": 160.9330541229248,
+            "take_profit": 170.93925437927246,
+            "position_size": 65,
+            "investment_amount": 10840.050277709961,
+            "risk_amount": 379.4017597198489,
+            "risk_reward_ratio": 0.7142857142857129,
+            "confidence": 61.6,
+            "entry_date": "2025-12-05T07:23:17.323772",
+            "expected_exit_date": "2025-12-12T07:23:17.323772",
+            "holding_period_days": 7,
+            "status": "ACTIVE",
+            "created_at": "2025-12-05T07:23:34.825695"
+        },
+        {
+            "symbol": "CAMS",
+            "company_name": "",
+            "strategy_name": "7-Day Adaptive Swing Strategy",
+            "entry_price": 3956.699951171875,
+            "stop_loss": 3818.215452880859,
+            "take_profit": 4055.6174499511717,
+            "position_size": 2,
+            "investment_amount": 7913.39990234375,
+            "risk_amount": 276.96899658203165,
+            "risk_reward_ratio": 0.714285714285712,
+            "confidence": 68.49624338624339,
+            "entry_date": "2025-12-05T07:23:22.324480",
+            "expected_exit_date": "2025-12-12T07:23:22.324480",
+            "holding_period_days": 7,
+            "status": "ACTIVE",
+            "created_at": "2025-12-05T07:23:34.825695"
+        },
+        {
+            "symbol": "BLS",
+            "company_name": "",
+            "strategy_name": "7-Day Adaptive Swing Strategy",
+            "entry_price": 331.54998779296875,
+            "stop_loss": 319.9457382202148,
+            "take_profit": 339.8387374877929,
+            "position_size": 33,
+            "investment_amount": 10941.149597167969,
+            "risk_amount": 382.94023590087966,
+            "risk_reward_ratio": 0.714285714285708,
+            "confidence": 72.59624338624339,
+            "entry_date": "2025-12-05T07:23:25.802058",
+            "expected_exit_date": "2025-12-12T07:23:25.802058",
+            "holding_period_days": 7,
+            "status": "ACTIVE",
+            "created_at": "2025-12-05T07:23:34.825695"
+        },
+        {
+            "symbol": "INDIGO",
+            "company_name": "",
+            "strategy_name": "7-Day Adaptive Swing Strategy",
+            "entry_price": 5436.5,
+            "stop_loss": 5246.2225,
+            "take_profit": 5572.412499999999,
+            "position_size": 2,
+            "investment_amount": 10873.0,
+            "risk_amount": 380.5550000000003,
+            "risk_reward_ratio": 0.7142857142857109,
+            "confidence": 69.0962433862434,
+            "entry_date": "2025-12-05T07:23:30.113375",
+            "expected_exit_date": "2025-12-12T07:23:30.113375",
+            "holding_period_days": 7,
+            "status": "ACTIVE",
+            "created_at": "2025-12-05T07:23:34.825695"
+        },
+        {
+            "symbol": "YESBANK",
+            "company_name": "",
+            "strategy_name": "7-Day Adaptive Swing Strategy",
+            "entry_price": 22.760000228881836,
+            "stop_loss": 21.96340022087097,
+            "take_profit": 23.32900023460388,
+            "position_size": 483,
+            "investment_amount": 10993.080110549927,
+            "risk_amount": 384.75780386924845,
+            "risk_reward_ratio": 0.7142857142857079,
+            "confidence": 65.74624338624339,
+            "entry_date": "2025-12-05T07:23:34.785006",
+            "expected_exit_date": "2025-12-12T07:23:34.785006",
+            "holding_period_days": 7,
+            "status": "ACTIVE",
+            "created_at": "2025-12-05T07:23:34.825695"
         }
     ]
 }

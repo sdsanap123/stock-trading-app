@@ -40,19 +40,24 @@ class EnhancedPortfolio:
         st.session_state.setdefault('show_edit_form', False)
         st.session_state.setdefault('show_delete_confirm', False)
         
-        # Load existing portfolio if it exists
-        if os.path.exists(self.portfolio_file):
-            try:
-                self._load_portfolio()
-                logger.info("Loaded existing portfolio file")
-            except Exception as e:
-                logger.error(f"Error loading portfolio: {str(e)}")
+        # Load existing portfolio from disk only once per session
+        if not st.session_state.get('portfolio_initialized', False):
+            if os.path.exists(self.portfolio_file):
+                try:
+                    self._load_portfolio()
+                    if not st.session_state.get('portfolio_file_loaded_logged', False):
+                        logger.info("Loaded existing portfolio file")
+                        st.session_state.portfolio_file_loaded_logged = True
+                except Exception as e:
+                    logger.error(f"Error loading portfolio: {str(e)}")
+                    st.session_state.portfolio = []
+                    self._save_portfolio()
+            else:
+                # Initialize with empty portfolio if no file exists
                 st.session_state.portfolio = []
                 self._save_portfolio()
-        else:
-            # Initialize with empty portfolio if no file exists
-            st.session_state.portfolio = []
-            self._save_portfolio()
+
+            st.session_state.portfolio_initialized = True
     
     def _load_portfolio(self) -> None:
         """
@@ -88,7 +93,9 @@ class EnhancedPortfolio:
                     valid_portfolio.append(item)
                 
                 st.session_state.portfolio = valid_portfolio
-                logger.info(f"Successfully loaded portfolio with {len(valid_portfolio)} items")
+                if not st.session_state.get('portfolio_loaded_logged', False):
+                    logger.info(f"Successfully loaded portfolio with {len(valid_portfolio)} items")
+                    st.session_state.portfolio_loaded_logged = True
                 
             except json.JSONDecodeError as e:
                 logger.error(f"Error decoding portfolio file: {str(e)}")

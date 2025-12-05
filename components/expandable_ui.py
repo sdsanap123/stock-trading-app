@@ -1251,6 +1251,14 @@ class ExpandableUI:
     def _display_watchlist_details(item: Dict):
         """Display detailed watchlist information."""
         try:
+            # If this watchlist item came from a full recommendation, reuse the
+            # same detailed recommendation renderer so the information matches
+            # what is shown in the recommendations tab.
+            full_rec = item.get('full_recommendation')
+            if isinstance(full_rec, dict):
+                ExpandableUI._display_recommendation_details(full_rec)
+                return
+
             col1, col2 = st.columns(2)
             
             with col1:

@@ -46,3 +46,4 @@ ENV/
 
 # Streamlit
 .streamlit/secrets.toml
+/saved_data
