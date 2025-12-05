@@ -14,6 +14,7 @@ firebase-credentials.json
 # Cache directories
 cache/
 __pycache__/
+saved_data/
 *.pyc
 *.pyo
 *.pyd
