@@ -46,5 +46,5 @@ ENV/
 
 # Streamlit
 .streamlit/secrets.toml
-/saved_data
+/saved_data/
 saved_data/watchlist.json

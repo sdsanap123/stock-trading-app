@@ -60,6 +60,7 @@ from components.news_analyzer import NewsAnalyzer
 from components.ai_engine import AIRecommendationEngine
 from components.groq_analyzer import GroqNewsAnalyzer
 from components.gemini_analyzer import GeminiAIAnalyzer
+from components.fundamental_analyzer import FundamentalAnalyzer
 from components.expandable_ui import ExpandableUI
 from utils.stock_utils import get_stock_data, find_stock_symbol, load_equity_data
 from components.watchlist_manager import WatchlistManager
@@ -331,6 +332,10 @@ class StreamlitTradingApp:
             if 'gemini_analyzer' not in st.session_state:
                 st.session_state.gemini_analyzer = GeminiAIAnalyzer()
             self.gemini_analyzer = st.session_state.gemini_analyzer
+
+            if 'fundamental_analyzer' not in st.session_state:
+                st.session_state.fundamental_analyzer = FundamentalAnalyzer()
+            self.fundamental_analyzer = st.session_state.fundamental_analyzer
 
             if 'watchlist_manager' not in st.session_state:
                 st.session_state.watchlist_manager = WatchlistManager()
