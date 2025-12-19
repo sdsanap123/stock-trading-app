@@ -25,6 +25,7 @@ from streamlit_extras.metric_cards import style_metric_cards
 import plotly.figure_factory as ff
 from pathlib import Path
 from dotenv import load_dotenv
+from keep_alive import get_keep_alive_service, start_keep_alive, stop_keep_alive, get_keep_alive_status, configure_keep_alive
 
 # Configure logging
 log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -246,7 +247,10 @@ class StreamlitTradingApp:
             'last_analysis_time': None,
             'show_saved_recommendations': False,
             'saved_groq_key': self.load_saved_api_key('groq'),
-            'saved_gemini_key': self.load_saved_api_key('gemini')
+            'saved_gemini_key': self.load_saved_api_key('gemini'),
+            'keep_alive_enabled': False,
+            'keep_alive_interval': 300,  # 5 minutes default
+            'keep_alive_url': ''
         }
         
         # Set default values if not already set
@@ -974,6 +978,70 @@ class StreamlitTradingApp:
             st.sidebar.success(f"Last Analysis: {st.session_state.last_analysis_time}")
         else:
             st.sidebar.info("No analysis performed yet")
+        
+        # Keep Alive Settings
+        st.sidebar.header("🔌 Keep Alive")
+        with st.sidebar.expander("Settings"):
+            # Toggle for enabling/disabling keep-alive
+            keep_alive_enabled = st.toggle(
+                "Enable Keep-Alive",
+                value=st.session_state.keep_alive_enabled,
+                key="keep_alive_toggle"
+            )
+            
+            # Get the current app URL from secrets or use default
+            default_url = st.secrets.get("STREAMLIT_APP_URL", "https://your-app-name.streamlit.app")
+            
+            # Input for app URL
+            keep_alive_url = st.text_input(
+                "App URL",
+                value=st.session_state.keep_alive_url or default_url,
+                key="keep_alive_url_input"
+            )
+            
+            # Input for ping interval (in minutes)
+            keep_alive_interval = st.number_input(
+                "Ping Interval (minutes)",
+                min_value=1,
+                max_value=60,
+                value=st.session_state.keep_alive_interval // 60,  # Convert seconds to minutes for display
+                key="keep_alive_interval_input"
+            )
+            
+            # Save settings button
+            if st.button("💾 Save Keep-Alive Settings"):
+                st.session_state.keep_alive_enabled = keep_alive_enabled
+                st.session_state.keep_alive_url = keep_alive_url
+                st.session_state.keep_alive_interval = keep_alive_interval * 60  # Convert to seconds
+                
+                # Configure the keep-alive service
+                configure_keep_alive(
+                    url=keep_alive_url,
+                    interval=keep_alive_interval * 60
+                )
+                
+                # Start or stop the service based on the toggle
+                if keep_alive_enabled:
+                    if start_keep_alive(ping_interval=keep_alive_interval * 60):
+                        st.success("✅ Keep-alive service started!")
+                    else:
+                        st.error("❌ Failed to start keep-alive service")
+                else:
+                    if stop_keep_alive():
+                        st.success("✅ Keep-alive service stopped")
+                    else:
+                        st.info("ℹ️ Keep-alive service is not running")
+            
+            # Show current status
+            status = get_keep_alive_status()
+            st.caption("Keep-Alive Status:")
+            if status['is_running']:
+                st.success(f"🟢 Active - Pinging every {status['ping_interval']//60} minutes")
+                if status['last_ping_time']:
+                    st.caption(f"Last ping: {status['last_ping_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+                st.caption(f"Success rate: {status['success_rate']:.1f}% ({status['ping_count']} pings)")
+            else:
+                st.info("⚪ Inactive")
         
         # Quick Stats
         st.sidebar.header("📊 Quick Stats")
