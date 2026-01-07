@@ -27,10 +27,22 @@ class KeepAliveService:
         self.ping_interval = ping_interval
         self.is_running = False
         self.thread: Optional[threading.Thread] = None
-        self.app_url = self._get_app_url()
+        self._app_url = None  # Lazy loaded
         self.last_ping_time: Optional[datetime] = None
         self.ping_count = 0
         self.failed_pings = 0
+    
+    @property
+    def app_url(self) -> str:
+        """Get the current app URL (lazy loaded)."""
+        if self._app_url is None:
+            self._app_url = self._get_app_url()
+        return self._app_url
+    
+    @app_url.setter
+    def app_url(self, value: str):
+        """Set the app URL."""
+        self._app_url = value
         
     def _get_app_url(self) -> str:
         """Get the current app URL for pinging."""
@@ -152,7 +164,7 @@ class KeepAliveService:
     def update_url(self, new_url: str):
         """Update the app URL."""
         if new_url and new_url.startswith('http'):
-            self.app_url = new_url
+            self.app_url = new_url  # This will use the setter
             logger.info(f"App URL updated to {new_url}")
             return True
         return False
