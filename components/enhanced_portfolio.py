@@ -40,95 +40,67 @@ class EnhancedPortfolio:
         st.session_state.setdefault('show_edit_form', False)
         st.session_state.setdefault('show_delete_confirm', False)
         
-        # Load existing portfolio from disk only once per session
+        # Load existing portfolio (prioritizes session state on cloud)
         if not st.session_state.get('portfolio_initialized', False):
-            if os.path.exists(self.portfolio_file):
-                try:
-                    self._load_portfolio()
-                    if not st.session_state.get('portfolio_file_loaded_logged', False):
-                        logger.info("Loaded existing portfolio file")
-                        st.session_state.portfolio_file_loaded_logged = True
-                except Exception as e:
-                    logger.error(f"Error loading portfolio: {str(e)}")
-                    st.session_state.portfolio = []
-                    self._save_portfolio()
-            else:
-                # Initialize with empty portfolio if no file exists
-                st.session_state.portfolio = []
-                self._save_portfolio()
-
+            self._load_portfolio()
             st.session_state.portfolio_initialized = True
-    
+
     def _load_portfolio(self) -> None:
         """
-        Load portfolio from file with enhanced error handling and validation.
+        Load portfolio from session state (primary) or file (fallback).
+        On Streamlit Cloud, session state is the reliable storage.
         """
         try:
-            # Initialize empty portfolio by default
-            default_portfolio = []
-            
-            # If portfolio file doesn't exist, create it with empty portfolio
-            if not os.path.exists(self.portfolio_file):
-                st.session_state.portfolio = default_portfolio
-                self._save_portfolio()
-                logger.info("Created new portfolio file")
+            # First, try to load from session state (primary storage on cloud)
+            if 'portfolio_data' in st.session_state:
+                st.session_state.portfolio = st.session_state.portfolio_data
+                logger.info(f"Loaded portfolio from session state with {len(st.session_state.portfolio)} items")
                 return
-                
-            # Try to read the file
-            try:
-                with open(self.portfolio_file, 'r', encoding='utf-8') as f:
-                    portfolio_data = json.load(f)
+            
+            # If no session state data, try to load from file (fallback for local)
+            if os.path.exists(self.portfolio_file):
+                try:
+                    with open(self.portfolio_file, 'r', encoding='utf-8') as f:
+                        portfolio_data = json.load(f)
                     
-                # Validate the loaded data
-                if not isinstance(portfolio_data, list):
-                    raise ValueError("Portfolio data is not a list")
+                    # Validate the loaded data
+                    if isinstance(portfolio_data, list):
+                        st.session_state.portfolio = portfolio_data
+                        # Also save to session state for future use
+                        st.session_state.portfolio_data = portfolio_data
+                        st.session_state.portfolio_last_saved = datetime.now().isoformat()
+                        logger.info(f"Loaded portfolio from file with {len(portfolio_data)} items")
+                    else:
+                        logger.error("Portfolio file is not in expected format")
+                        st.session_state.portfolio = []
+                        self._save_portfolio()
+                        
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error decoding portfolio file: {str(e)}")
+                    st.warning("Portfolio file is corrupted. Starting with an empty portfolio.")
+                    st.session_state.portfolio = []
+                    self._save_portfolio()
                     
-                # Basic validation of each portfolio item
-                valid_portfolio = []
-                for item in portfolio_data:
-                    if not isinstance(item, dict):
-                        continue
-                    if 'symbol' not in item or 'quantity' not in item or 'buy_price' not in item:
-                        continue
-                    valid_portfolio.append(item)
-                
-                st.session_state.portfolio = valid_portfolio
-                if not st.session_state.get('portfolio_loaded_logged', False):
-                    logger.info(f"Successfully loaded portfolio with {len(valid_portfolio)} items")
-                    st.session_state.portfolio_loaded_logged = True
-                
-            except json.JSONDecodeError as e:
-                logger.error(f"Error decoding portfolio file: {str(e)}")
-                st.warning("Portfolio file is corrupted. Starting with an empty portfolio.")
-                st.session_state.portfolio = default_portfolio
+            else:
+                # No file exists, start with empty portfolio
+                st.session_state.portfolio = []
                 self._save_portfolio()
+                logger.info("No existing portfolio found, starting with empty portfolio")
                 
         except Exception as e:
             logger.error(f"Unexpected error loading portfolio: {str(e)}")
-            st.session_state.portfolio = default_portfolio
+            st.session_state.portfolio = []
             self._save_portfolio()
 
     def _save_portfolio(self) -> None:
         """
-        Save portfolio to file with enhanced error handling and atomic writes.
+        Save portfolio to session state (primary) and file (backup for local development).
+        On Streamlit Cloud, only session state will persist during the session.
         """
         try:
             # Ensure we have a portfolio to save
             if 'portfolio' not in st.session_state:
                 st.session_state.portfolio = []
-            
-            # Ensure the directory exists
-            os.makedirs(os.path.dirname(self.portfolio_file), exist_ok=True)
-            
-            # Create a backup of the current file if it exists
-            backup_file = None
-            if os.path.exists(self.portfolio_file):
-                backup_file = f"{self.portfolio_file}.bak"
-                try:
-                    import shutil
-                    shutil.copy2(self.portfolio_file, backup_file)
-                except Exception as e:
-                    logger.warning(f"Could not create backup: {str(e)}")
             
             # Prepare the data to be saved
             data_to_save = []
@@ -143,9 +115,27 @@ class EnhancedPortfolio:
                         'notes': item.get('notes', '')
                     })
             
-            # Save to a temporary file first
-            temp_file = f"{self.portfolio_file}.tmp"
+            # Update session state (primary storage for cloud)
+            st.session_state.portfolio_data = data_to_save
+            st.session_state.portfolio_last_saved = datetime.now().isoformat()
+            
+            # Try to save to file as backup (works locally, may not persist on cloud)
             try:
+                # Ensure the directory exists
+                os.makedirs(os.path.dirname(self.portfolio_file), exist_ok=True)
+                
+                # Create a backup of the current file if it exists
+                backup_file = None
+                if os.path.exists(self.portfolio_file):
+                    backup_file = f"{self.portfolio_file}.bak"
+                    try:
+                        import shutil
+                        shutil.copy2(self.portfolio_file, backup_file)
+                    except Exception as e:
+                        logger.warning(f"Could not create backup: {str(e)}")
+                
+                # Save to a temporary file first
+                temp_file = f"{self.portfolio_file}.tmp"
                 with open(temp_file, 'w', encoding='utf-8') as f:
                     json.dump(data_to_save, f, indent=2, ensure_ascii=False, default=str)
                     f.flush()
@@ -164,18 +154,12 @@ class EnhancedPortfolio:
                     except Exception as e:
                         logger.warning(f"Could not remove backup file: {str(e)}")
                 
-                logger.info(f"Successfully saved portfolio with {len(data_to_save)} items")
+                logger.info(f"Successfully saved portfolio with {len(data_to_save)} items to file and session state")
                 
-            except Exception as e:
-                # If something went wrong, try to restore from backup
-                if backup_file and os.path.exists(backup_file):
-                    try:
-                        os.replace(backup_file, self.portfolio_file)
-                        logger.info("Restored portfolio from backup")
-                    except Exception as restore_error:
-                        logger.error(f"Failed to restore from backup: {str(restore_error)}")
-                
-                raise Exception(f"Failed to save portfolio: {str(e)}")
+            except Exception as file_error:
+                # File save failed, but session state save succeeded
+                logger.warning(f"File save failed (expected on cloud): {str(file_error)}")
+                logger.info(f"Portfolio saved to session state with {len(data_to_save)} items")
                 
         except Exception as e:
             logger.error(f"Error saving portfolio: {str(e)}")
@@ -1001,6 +985,17 @@ class EnhancedPortfolio:
     def render(self) -> None:
         """Render the enhanced portfolio interface."""
         st.title("📊 Enhanced Portfolio Management")
+        
+        # Cloud persistence warning and status
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.info("☁️ **Cloud Storage**: Your portfolio is saved in the current session. "
+                   "Data persists during navigation but may reset when the app restarts.")
+        with col2:
+            if 'portfolio_last_saved' in st.session_state:
+                st.success(f"✅ Saved\n{st.session_state.portfolio_last_saved[:19]}")
+            else:
+                st.warning("⚠️ Not saved")
 
         # Create tabs for different sections
         tab1, tab2, tab3 = st.tabs(["My Portfolio", "Add/Import Stocks", "Analysis"])
