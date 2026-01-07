@@ -15,6 +15,7 @@ import streamlit as st
 import yfinance as yf
 
 from .stock_analyzer import StockAnalyzer
+from .firebase_integration import FirebaseSync
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +30,9 @@ class EnhancedPortfolio:
         self.portfolio_file = os.path.join(data_dir, "portfolio_enhanced.json")
         self.analyzer = StockAnalyzer()
         
+        # Initialize Firebase sync
+        self.firebase_sync = FirebaseSync()
+        
         # Ensure data directory exists
         os.makedirs(data_dir, exist_ok=True)
         
@@ -40,24 +44,50 @@ class EnhancedPortfolio:
         st.session_state.setdefault('show_edit_form', False)
         st.session_state.setdefault('show_delete_confirm', False)
         
-        # Load existing portfolio (prioritizes session state on cloud)
+        # Set user ID for Firebase (using session ID or generated ID)
+        if 'user_id' not in st.session_state:
+            # Generate a simple user ID based on session or use existing
+            if 'session_id' in st.session_state:
+                st.session_state.user_id = st.session_state.session_id
+            else:
+                # Generate a unique user ID
+                import hashlib
+                import time
+                user_string = f"portfolio_user_{int(time.time())}_{hash(str(st.session_state))}"
+                st.session_state.user_id = hashlib.md5(user_string.encode()).hexdigest()[:16]
+        
+        # Set user ID in Firebase sync
+        self.firebase_sync.set_user_id(st.session_state.user_id)
+        
+        # Load existing portfolio (prioritizes cloud storage)
         if not st.session_state.get('portfolio_initialized', False):
             self._load_portfolio()
             st.session_state.portfolio_initialized = True
 
     def _load_portfolio(self) -> None:
         """
-        Load portfolio from session state (primary) or file (fallback).
-        On Streamlit Cloud, session state is the reliable storage.
+        Load portfolio from Firebase cloud storage (primary), session state (secondary), or file (fallback).
+        Priority: Firebase > Session State > Local File
         """
         try:
-            # First, try to load from session state (primary storage on cloud)
+            # First, try to load from Firebase cloud storage (primary)
+            firebase_portfolio = self.firebase_sync.load_portfolio()
+            if firebase_portfolio is not None:
+                st.session_state.portfolio = firebase_portfolio
+                st.session_state.portfolio_data = firebase_portfolio
+                st.session_state.portfolio_last_saved = datetime.now().isoformat()
+                st.session_state.portfolio_source = "firebase"
+                logger.info(f"Loaded portfolio from Firebase with {len(firebase_portfolio)} items")
+                return
+            
+            # Second, try to load from session state (secondary)
             if 'portfolio_data' in st.session_state:
                 st.session_state.portfolio = st.session_state.portfolio_data
+                st.session_state.portfolio_source = "session"
                 logger.info(f"Loaded portfolio from session state with {len(st.session_state.portfolio)} items")
                 return
             
-            # If no session state data, try to load from file (fallback for local)
+            # Third, try to load from file (fallback for local development)
             if os.path.exists(self.portfolio_file):
                 try:
                     with open(self.portfolio_file, 'r', encoding='utf-8') as f:
@@ -66,10 +96,15 @@ class EnhancedPortfolio:
                     # Validate the loaded data
                     if isinstance(portfolio_data, list):
                         st.session_state.portfolio = portfolio_data
-                        # Also save to session state for future use
+                        # Also save to session state and Firebase for future use
                         st.session_state.portfolio_data = portfolio_data
                         st.session_state.portfolio_last_saved = datetime.now().isoformat()
-                        logger.info(f"Loaded portfolio from file with {len(portfolio_data)} items")
+                        st.session_state.portfolio_source = "file"
+                        
+                        # Sync to Firebase for future cloud access
+                        self.firebase_sync.sync_portfolio(portfolio_data)
+                        
+                        logger.info(f"Loaded portfolio from file with {len(portfolio_data)} items and synced to cloud")
                     else:
                         logger.error("Portfolio file is not in expected format")
                         st.session_state.portfolio = []
@@ -84,18 +119,20 @@ class EnhancedPortfolio:
             else:
                 # No file exists, start with empty portfolio
                 st.session_state.portfolio = []
+                st.session_state.portfolio_source = "new"
                 self._save_portfolio()
                 logger.info("No existing portfolio found, starting with empty portfolio")
                 
         except Exception as e:
             logger.error(f"Unexpected error loading portfolio: {str(e)}")
             st.session_state.portfolio = []
+            st.session_state.portfolio_source = "error"
             self._save_portfolio()
 
     def _save_portfolio(self) -> None:
         """
-        Save portfolio to session state (primary) and file (backup for local development).
-        On Streamlit Cloud, only session state will persist during the session.
+        Save portfolio to Firebase cloud storage (primary), session state (secondary), and file (backup).
+        Priority: Firebase > Session State > Local File
         """
         try:
             # Ensure we have a portfolio to save
@@ -115,9 +152,18 @@ class EnhancedPortfolio:
                         'notes': item.get('notes', '')
                     })
             
-            # Update session state (primary storage for cloud)
+            # Update session state (secondary storage)
             st.session_state.portfolio_data = data_to_save
             st.session_state.portfolio_last_saved = datetime.now().isoformat()
+            
+            # Sync to Firebase cloud storage (primary storage)
+            firebase_sync_success = self.firebase_sync.sync_portfolio(data_to_save)
+            if firebase_sync_success:
+                st.session_state.portfolio_sync_status = "synced"
+                logger.info(f"Portfolio synced to Firebase with {len(data_to_save)} items")
+            else:
+                st.session_state.portfolio_sync_status = "sync_failed"
+                logger.warning("Failed to sync portfolio to Firebase")
             
             # Try to save to file as backup (works locally, may not persist on cloud)
             try:
@@ -157,9 +203,9 @@ class EnhancedPortfolio:
                 logger.info(f"Successfully saved portfolio with {len(data_to_save)} items to file and session state")
                 
             except Exception as file_error:
-                # File save failed, but session state save succeeded
+                # File save failed, but session state and Firebase save succeeded
                 logger.warning(f"File save failed (expected on cloud): {str(file_error)}")
-                logger.info(f"Portfolio saved to session state with {len(data_to_save)} items")
+                logger.info(f"Portfolio saved to session state and Firebase with {len(data_to_save)} items")
                 
         except Exception as e:
             logger.error(f"Error saving portfolio: {str(e)}")
@@ -987,18 +1033,40 @@ class EnhancedPortfolio:
         st.title("📊 Enhanced Portfolio Management")
         
         # Cloud persistence warning and status
-        col1, col2 = st.columns([3, 1])
+        col1, col2, col3 = st.columns([3, 1, 1])
         with col1:
-            st.info("☁️ **Cloud Storage**: Your portfolio is saved in the current session. "
-                   "Data persists during navigation but may reset when the app restarts.")
+            # Get sync status
+            sync_status = self.firebase_sync.get_sync_status()
+            source = st.session_state.get('portfolio_source', 'unknown')
+            
+            if source == "firebase":
+                st.success("☁️ **Cloud Storage**: Portfolio loaded from Firebase cloud storage")
+            elif source == "session":
+                st.info("💾 **Session Storage**: Portfolio loaded from current session")
+            elif source == "file":
+                st.warning("📁 **Local File**: Portfolio loaded from local file (synced to cloud)")
+            else:
+                st.info("🆕 **New Portfolio**: Start by adding stocks to your portfolio")
+        
         with col2:
             if 'portfolio_last_saved' in st.session_state:
-                st.success(f"✅ Saved\n{st.session_state.portfolio_last_saved[:19]}")
+                last_saved = st.session_state.portfolio_last_saved[:19].replace('T', ' ')
+                st.success(f"✅ Saved\n{last_saved}")
             else:
                 st.warning("⚠️ Not saved")
+        
+        with col3:
+            sync_status_icon = "🔄" if st.session_state.get('portfolio_sync_status') == 'sync_failed' else "☁️"
+            if sync_status.get('sync_enabled', False):
+                if sync_status.get('has_real_db', False):
+                    st.success(f"{sync_status_icon}\nFirebase")
+                else:
+                    st.info(f"{sync_status_icon}\nMock")
+            else:
+                st.info("📱\nLocal")
 
         # Create tabs for different sections
-        tab1, tab2, tab3 = st.tabs(["My Portfolio", "Add/Import Stocks", "Analysis"])
+        tab1, tab2, tab3, tab4 = st.tabs(["My Portfolio", "Add/Import Stocks", "Analysis", "Cloud Backup"])
 
         with tab1:
             self._render_portfolio_tab()
@@ -1008,6 +1076,9 @@ class EnhancedPortfolio:
 
         with tab3:
             self._render_analysis_tab()
+            
+        with tab4:
+            self._render_cloud_backup_tab()
 
     def _render_portfolio_tab(self) -> None:
         """Render the main portfolio tab."""
@@ -1330,6 +1401,136 @@ class EnhancedPortfolio:
                             stock['analysis'] = analysis
                             self._save_portfolio()
                             st.rerun()
+
+    def _render_cloud_backup_tab(self) -> None:
+        """Render the cloud backup and restore tab."""
+        st.header("☁️ Cloud Backup & Restore")
+        
+        # Get sync status
+        sync_status = self.firebase_sync.get_sync_status()
+        
+        # Display sync status
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("📊 Sync Status")
+            st.write(f"**Firebase Initialized**: {'✅ Yes' if sync_status['initialized'] else '❌ No'}")
+            st.write(f"**User ID**: {sync_status['user_id'] or 'Not set'}")
+            st.write(f"**Sync Enabled**: {'✅ Yes' if sync_status['sync_enabled'] else '❌ No'}")
+            st.write(f"**Database Type**: {'Real Firebase' if sync_status.get('has_real_db', False) else 'Mock Mode'}")
+            if sync_status['last_sync']:
+                st.write(f"**Last Sync**: {sync_status['last_sync'][:19].replace('T', ' ')}")
+        
+        with col2:
+            st.subheader("💾 Backup Actions")
+            
+            # Manual sync button
+            if st.button("🔄 Force Sync to Cloud", help="Manually sync your portfolio to Firebase"):
+                with st.spinner("Syncing to cloud..."):
+                    if self.firebase_sync.sync_portfolio(st.session_state.portfolio):
+                        st.success("Portfolio synced to cloud successfully!")
+                        st.session_state.portfolio_sync_status = "synced"
+                        st.rerun()
+                    else:
+                        st.error("Failed to sync portfolio to cloud")
+            
+            # Export portfolio
+            if st.button("📥 Export Portfolio", help="Download your portfolio as JSON"):
+                portfolio_data = {
+                    'portfolio': st.session_state.portfolio,
+                    'export_date': datetime.now().isoformat(),
+                    'user_id': st.session_state.get('user_id'),
+                    'version': '1.0'
+                }
+                json_data = json.dumps(portfolio_data, indent=2, ensure_ascii=False, default=str)
+                st.download_button(
+                    label="💾 Download Portfolio JSON",
+                    data=json_data,
+                    file_name=f"portfolio_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
+        
+        # Import/Restore section
+        st.subheader("🔄 Import & Restore")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Import from File**")
+            uploaded_file = st.file_uploader("Upload portfolio JSON file", type=['json'])
+            if uploaded_file is not None:
+                try:
+                    imported_data = json.load(uploaded_file)
+                    if 'portfolio' in imported_data and isinstance(imported_data['portfolio'], list):
+                        if st.button("📥 Import Portfolio", key="import_portfolio"):
+                            # Validate and import portfolio
+                            valid_portfolio = []
+                            for item in imported_data['portfolio']:
+                                if isinstance(item, dict) and 'symbol' in item and 'quantity' in item and 'buy_price' in item:
+                                    valid_portfolio.append(item)
+                            
+
+                            if valid_portfolio:
+                                st.session_state.portfolio = valid_portfolio
+                                self._save_portfolio()
+                                st.success(f"Successfully imported {len(valid_portfolio)} stocks!")
+                                st.rerun()
+                            else:
+                                st.error("No valid portfolio data found in file")
+                    else:
+                        st.error("Invalid portfolio file format")
+                except Exception as e:
+                    st.error(f"Error importing portfolio: {str(e)}")
+        
+        with col2:
+            st.write("**Restore from Cloud**")
+            if st.button("☁️ Restore from Firebase", help="Restore portfolio from Firebase cloud storage"):
+                with st.spinner("Restoring from cloud..."):
+                    cloud_portfolio = self.firebase_sync.load_portfolio()
+                    if cloud_portfolio is not None:
+                        st.session_state.portfolio = cloud_portfolio
+                        self._save_portfolio()
+                        st.success(f"Successfully restored {len(cloud_portfolio)} stocks from cloud!")
+                        st.rerun()
+                    else:
+                        st.info("No portfolio found in cloud storage")
+        
+        # Advanced options
+        with st.expander("🔧 Advanced Options"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🗑️ Clear Cloud Data", type="secondary", help="Remove portfolio from Firebase"):
+                    if st.session_state.get('confirm_clear_cloud', False):
+                        # Clear cloud data
+                        if self.firebase_sync.delete_user_data():
+                            st.success("Cloud data cleared!")
+                        else:
+                            st.error("Failed to clear cloud data")
+                        st.session_state.confirm_clear_cloud = False
+                        st.rerun()
+                    else:
+                        st.session_state.confirm_clear_cloud = True
+                        st.warning("Click again to confirm clearing cloud data")
+            
+            with col2:
+                if st.button("🔄 Reset User ID", type="secondary", help="Generate a new user ID"):
+                    # Generate new user ID
+                    import hashlib
+                    import time
+                    user_string = f"portfolio_user_{int(time.time())}_{hash(str(st.session_state))}"
+                    new_user_id = hashlib.md5(user_string.encode()).hexdigest()[:16]
+                    st.session_state.user_id = new_user_id
+                    self.firebase_sync.set_user_id(new_user_id)
+                    st.success(f"New User ID generated: {new_user_id}")
+                    st.rerun()
+        
+        # Firebase setup instructions
+        if not sync_status.get('has_real_db', False):
+            st.info("💡 **To enable real Firebase sync:**\n"
+                   "1. Create a Firebase project at https://console.firebase.google.com\n"
+                   "2. Set up Firestore Database\n"
+                   "3. Add Firebase credentials to Streamlit secrets\n"
+                   "4. Add 'firebase-admin' to requirements.txt")
 
 # Helper function to use in app.py
 def render_enhanced_portfolio():
