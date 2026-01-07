@@ -271,7 +271,11 @@ class FirebaseSync:
                 except Exception as e:
                     logger.error(f"Firebase watchlist sync error: {str(e)}")
             
-            # Mock sync for demo
+            # Mock sync for demo - store in session state
+            if 'firebase_watchlist_backup' not in st.session_state:
+                st.session_state.firebase_watchlist_backup = {}
+            st.session_state.firebase_watchlist_backup[self.user_id] = watchlist_data
+            
             logger.info(f"Watchlist synced to mock Firebase for user {self.user_id}")
             return True
             

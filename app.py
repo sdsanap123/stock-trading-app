@@ -341,29 +341,31 @@ class StreamlitTradingApp:
                 st.session_state.fundamental_analyzer = FundamentalAnalyzer()
             self.fundamental_analyzer = st.session_state.fundamental_analyzer
 
-            if 'watchlist_manager' not in st.session_state:
-                st.session_state.watchlist_manager = WatchlistManager()
-            self.watchlist_manager = st.session_state.watchlist_manager
-
-            # Initialize or reuse learning system
-            if 'recommendation_tracker' not in st.session_state:
-                try:
-                    st.session_state.recommendation_tracker = RecommendationTracker()
-                    st.session_state.learning_available = True
-                except:
-                    st.session_state.recommendation_tracker = None
-                    st.session_state.learning_available = False
-            self.recommendation_tracker = st.session_state.recommendation_tracker
-
             # Initialize or reuse Firebase integration
             if 'firebase_sync' not in st.session_state:
                 try:
                     st.session_state.firebase_sync = FirebaseSync('firebase_config.json')
                     st.session_state.firebase_available = st.session_state.firebase_sync.initialized
+                    
+                    # Set user ID for Firebase if not already set
+                    if st.session_state.firebase_sync.initialized and 'user_id' not in st.session_state:
+                        # Generate a unique user ID
+                        import hashlib
+                        import time
+                        user_string = f"watchlist_user_{int(time.time())}_{hash(str(st.session_state))}"
+                        user_id = hashlib.md5(user_string.encode()).hexdigest()[:16]
+                        st.session_state.user_id = user_id
+                        st.session_state.firebase_sync.set_user_id(user_id)
+                        logger.info(f"Generated Firebase user ID: {user_id}")
+                        
                 except:
                     st.session_state.firebase_sync = None
                     st.session_state.firebase_available = False
             self.firebase_sync = st.session_state.firebase_sync
+
+            if 'watchlist_manager' not in st.session_state:
+                st.session_state.watchlist_manager = WatchlistManager(self.firebase_sync)
+            self.watchlist_manager = st.session_state.watchlist_manager
 
             # Initialize API keys in analyzers (only once per session)
             if not st.session_state.get('api_keys_initialized', False):
