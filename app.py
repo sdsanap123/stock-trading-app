@@ -250,7 +250,11 @@ class StreamlitTradingApp:
             'saved_gemini_key': self.load_saved_api_key('gemini'),
             'keep_alive_enabled': False,
             'keep_alive_interval': 300,  # 5 minutes default
-            'keep_alive_url': ''
+            'keep_alive_url': '',
+            'learning_available': False,
+            'components_initialized': False,
+            'api_keys_initialized': False,
+            'scheduler_started': False
         }
         
         # Set default values if not already set
@@ -366,6 +370,16 @@ class StreamlitTradingApp:
             if 'watchlist_manager' not in st.session_state:
                 st.session_state.watchlist_manager = WatchlistManager(self.firebase_sync)
             self.watchlist_manager = st.session_state.watchlist_manager
+
+            # Initialize or reuse learning system
+            if 'recommendation_tracker' not in st.session_state:
+                try:
+                    st.session_state.recommendation_tracker = RecommendationTracker()
+                    st.session_state.learning_available = True
+                except:
+                    st.session_state.recommendation_tracker = None
+                    st.session_state.learning_available = False
+            self.recommendation_tracker = st.session_state.recommendation_tracker
 
             # Initialize API keys in analyzers (only once per session)
             if not st.session_state.get('api_keys_initialized', False):
